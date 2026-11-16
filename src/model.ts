@@ -1,7 +1,8 @@
 export type Status = 'Available' | 'Allotted' | 'Occupied';
 type Timestamps = { createdAt?: string; updatedAt?: string };
 export type WeddingSettings = { name: string; defaultDate: string };
-export type GuestGroup = Timestamps & { id: string; name: string; members: string[]; headcount: number | null; category: string; contact: string; needsAccommodation: boolean | null; notes: string };
+export type GuestCategory = Timestamps & {id:string;name:string};
+export type GuestGroup = Timestamps & { id: string; name: string; members: string[]; headcount: number | null; category: string; categoryId?:string; contact: string; needsAccommodation: boolean | null; notes: string };
 export type WeddingEvent = Timestamps & { id: string; name: string; date: string; time?: string; location: string; notes: string };
 export type Invitation = Timestamps & { id: string; guestGroupId: string; eventId: string; response: 'Pending' | 'Confirmed' | 'Declined'; confirmedHeadcount: number | null };
 export type DateRange = { checkIn: string; checkOut: string };
@@ -15,7 +16,7 @@ export type StayAllocation = Allocation & DateRange & { id: string; roomId: stri
 export type Room = Timestamps & { id: string; number: string; areaId: string; type: 'Normal' | 'Suite'; capacity: number; special?: string; notes?: string; allocation?: Allocation; booked?:boolean; overdue?:boolean; propertyId?:string };
 export type HistoryEntry = { id: string; at: string; action: string; roomId?: string; destinationRoomId?: string; areaId?: string; roomSnapshot?: Room; destinationSnapshot?: Room; areaSnapshot?: Area; before?: Room[]; after?: Room[]; roomNames?: Record<string,string>; areaNames?: Record<string,string>; labelNames?: Record<string,string>; allocationId?: string; recoveredEventId?: string };
 export type RoomRequirement = DateRange & Timestamps & { id: string; labelId: string; roomsRequired: number; propertyId?: string; guestGroupId?: string };
-export type Dataset = { version: 3; wedding: WeddingSettings; guests: GuestGroup[]; events: WeddingEvent[]; invitations: Invitation[]; properties: StayProperty[]; areas: Area[]; rooms: Room[]; allocations: StayAllocation[]; requirements: RoomRequirement[]; labels: AllocationLabel[]; history: HistoryEntry[]; referenceData: boolean; createdAt: string; updatedAt: string; viewDate?:string };
+export type Dataset = { version: 3; wedding: WeddingSettings; guests: GuestGroup[]; guestCategories:GuestCategory[]; events: WeddingEvent[]; invitations: Invitation[]; properties: StayProperty[]; areas: Area[]; rooms: Room[]; allocations: StayAllocation[]; requirements: RoomRequirement[]; labels: AllocationLabel[]; history: HistoryEntry[]; referenceData: boolean; createdAt: string; updatedAt: string; viewDate?:string };
 export type LegacyDataset = { version: 2; areas: Omit<Area,'propertyId'>[]; rooms: Room[]; labels: AllocationLabel[]; history: HistoryEntry[]; createdAt: string; updatedAt: string };
 export type MigrationSettings = { propertyName: string; bookedCheckIn: string; bookedCheckOut: string; checkIn: string; checkOut: string; defaultDate: string };
 export const STORAGE_KEY = 'weddingstay.data.v3';
@@ -35,9 +36,20 @@ export function projectData(data: Dataset,date=data.viewDate||data.wedding.defau
   return {...data,viewDate:date,rooms:data.rooms.map(room=>({...room,allocation:allocationOn(data,room.id,date),propertyId:propertyForRoom(data,room)?.id,booked:!!propertyForRoom(data,room)?.bookedRanges.some(r=>r.checkIn<=date&&date<r.checkOut),overdue:date===localToday()&&overdueStays(data,room.id).length>0}))};
 }
 export function storedData(data: Dataset) { const {viewDate:_,...saved}=data;return {...saved,rooms:data.rooms.map(({allocation:_,booked:_b,overdue:_o,propertyId:_p,...room})=>room)}; }
+export function withGuestCategories(data:Dataset):Dataset {
+ const categories=[...(data.guestCategories||[])];
+ const guests=data.guests.map(guest=>{
+  if(guest.categoryId){const category=categories.find(c=>c.id===guest.categoryId);return category?{...guest,category:category.name}:guest;}
+  const name=guest.category?.trim();if(!name)return {...guest,category:''};
+  let category=categories.find(c=>c.name.trim().toLowerCase()===name.toLowerCase());
+  if(!category){category={id:'category-'+encodeURIComponent(name.toLowerCase()),name};categories.push(category);}
+  return {...guest,categoryId:category.id,category:category.name};
+ });
+ return {...data,guests,guestCategories:categories};
+}
 export function emptyDataset(): Dataset {
   const now=new Date().toISOString();
-  return {version:3,wedding:{name:'Your wedding',defaultDate:'2026-12-01'},guests:[],events:[],invitations:[],properties:[],areas:[],rooms:[],allocations:[],requirements:[],labels:[],history:[],referenceData:false,createdAt:now,updatedAt:now};
+  return {version:3,wedding:{name:'Your wedding',defaultDate:'2026-12-01'},guests:[],guestCategories:[],events:[],invitations:[],properties:[],areas:[],rooms:[],allocations:[],requirements:[],labels:[],history:[],referenceData:false,createdAt:now,updatedAt:now};
 }
 export class MigrationRequired extends Error {
   constructor(public legacy: LegacyDataset) { super('Your saved data needs a one-time stay setup.'); }

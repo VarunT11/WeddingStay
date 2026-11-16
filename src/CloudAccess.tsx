@@ -6,7 +6,7 @@ import {Cloud,Flower2,LogOut,Upload} from 'lucide-react';
 import {auth,cloudError,firebaseConfigured,firebaseSignOut,googleSignIn,weddingId} from './firebase';
 import {initializeWedding,membershipRef,watchWedding,type CloudSnapshot} from './cloudStore';
 import {parseDataset,serializeDataset,exportFilename} from './transfer';
-import {STORAGE_KEY,validateData,type Dataset} from './data';
+import {STORAGE_KEY,validateData,normalizeData,type Dataset} from './data';
 import {Confirm} from './dialogs';
 
 type Role='owner'|'coordinator';
@@ -15,7 +15,7 @@ const CloudContext=createContext<Access|null>(null);
 export function useCloud(){const cloud=useContext(CloudContext);if(!cloud)throw new Error('Sign-in is required.');return cloud;}
 const cacheKey=(uid:string)=>'weddingstay.cloud.v1.'+uid+'.'+weddingId;
 function clearCache(uid:string){try{localStorage.removeItem(cacheKey(uid));}catch{/* Device storage is optional. */}}
-function readCache(uid:string){try{const value=JSON.parse(localStorage.getItem(cacheKey(uid))||'null');if(value?.uid!==uid||!['owner','coordinator'].includes(value.role))return null;validateData(value.snapshot.data);return value as {uid:string;role:Role;snapshot:CloudSnapshot};}catch{return null;}}
+function readCache(uid:string){try{const value=JSON.parse(localStorage.getItem(cacheKey(uid))||'null');if(value?.uid!==uid||!['owner','coordinator'].includes(value.role))return null;value.snapshot.data=normalizeData(value.snapshot.data);return value as {uid:string;role:Role;snapshot:CloudSnapshot};}catch{return null;}}
 export function CloudAccess({children}:{children:ReactNode}){
  const [user,setUser]=useState<User|null>(null),[authReady,setAuthReady]=useState(false),[role,setRole]=useState<Role|null>(null),[snapshot,setSnapshot]=useState<CloudSnapshot|null>(null),[status,setStatus]=useState('checking'),[error,setError]=useState(''),[signingIn,setSigningIn]=useState(false),[retry,setRetry]=useState(0),[online,setOnline]=useState(navigator.onLine);
  const previousUser=useRef<string|null>(null);

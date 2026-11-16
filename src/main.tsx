@@ -35,7 +35,7 @@ const areaIcon = (id: string) => id === 'garden' ? <Leaf/> : id === 'poolside' ?
 function Badge({status}: {status: Status}) { return <span className={`badge ${statusClass(status)}`}><i/>{status}</span>; }
 function App() {
   const cloud=useCloud();
-  const revision=useRef(cloud.snapshot.revision),savingRef=useRef(false);
+  const schema=useRef(cloud.snapshot.clientSchema),revision=useRef(cloud.snapshot.revision),savingRef=useRef(false);
   const [saving,setSaving]=useState(false);
   const offline=useOfflineApp();
   const [laterUpdate,setLaterUpdate]=useState(false);
@@ -61,8 +61,9 @@ function App() {
   const [globalQuery,setGlobalQuery] = useState('');
   const areaId = stayRoute.areaId;
   const area = areas.find(a => a.id === areaId);
-  const managementKind=location.pathname==='/guests'?'guests':location.pathname==='/events'?'events':undefined;
-  const managementOpen=!!(managementKind&&params.get(managementKind==='guests'?'guest':'event'));
+  const managementKind=location.pathname==='/guests'?'guests':(location.pathname==='/events'||location.pathname.startsWith('/events/'))?'events':undefined;
+  const contextEvent=location.pathname.startsWith('/events/')?data.events.find(e=>e.id===decodeURIComponent(location.pathname.slice(8))):undefined;
+  const managementOpen=!!(managementKind&&(params.has('guest')||params.has('event')||params.has('editEvent')||params.has('categories')||params.has('merge')||params.has('invite')||params.has('rsvp')));
   const page = staysPage?'Stays':managementKind==='guests'?'Guests':managementKind==='events'?'Events':location.pathname === '/' ? 'Dashboard' : location.pathname === '/areas' ? 'Areas' : area ? area.name : 'Browse rooms';
   const reportContext:ReportContext=(stayRoute.kind==='rooms'||area)?{guest:params.get('guestGroup')||undefined,property:propertyFilter||undefined,area:area?.id||params.get('area')||undefined,status:params.get('status')||undefined,type:params.get('type')||undefined,query:params.get('q')||undefined,label:data.labels.some(l=>l.id===params.get('label'))?params.get('label')||undefined:undefined}:{};
   const bulkOpen=!!stayRoute.date&&params.get('bulk')==='1';
@@ -73,9 +74,9 @@ function App() {
     if(!cloud.online){setError('You are offline. Reconnect before saving. Your draft is kept.');return false;}
     savingRef.current=true;setSaving(true);setError('');
     try {
-      const before:CloudSnapshot={data:savedData,revision:revision.current,datasetVersion:cloud.snapshot.datasetVersion};
+      const before:CloudSnapshot={data:savedData,revision:revision.current,datasetVersion:cloud.snapshot.datasetVersion,clientSchema:schema.current};
       const confirmed=await commitWedding(before,normalizeData({...next,updatedAt:new Date().toISOString()}));
-      revision.current=confirmed.revision;setData(confirmed.data);setToast(message);return true;
+      schema.current=confirmed.clientSchema;revision.current=confirmed.revision;setData(confirmed.data);setToast(message);return true;
     } catch(cause){setError(cloudError(cause));return false;}
     finally{savingRef.current=false;setSaving(false);}
   }
@@ -129,18 +130,18 @@ function App() {
   const closeRoom = () => { const back = location.state as {roomOverlay?: boolean} | null; if (back?.roomOverlay) navigate(-1); else { const p = new URLSearchParams(params); p.delete('room');p.delete('allocation'); navigate({pathname:location.pathname,search:p.toString()},{replace:true}); } };
   const nestedNight=!!stayRoute.date;
   const paused=!!(selectedRoom||managementOpen||params.has('propertyEdit')||params.has('requirementEdit')||bulkOpen||inventory||manageLabels||dataDialog||pdfScope||saving);
-  useEffect(()=>{if(!paused&&cloud.snapshot.revision>revision.current){revision.current=cloud.snapshot.revision;setData(cloud.snapshot.data);}},[cloud.snapshot,paused]);
+  useEffect(()=>{if(!paused&&cloud.snapshot.revision>revision.current){schema.current=cloud.snapshot.clientSchema;revision.current=cloud.snapshot.revision;setData(cloud.snapshot.data);}},[cloud.snapshot,paused]);
   return <DateContext.Provider value={selectedDate}><PropertiesContext.Provider value={data.properties}><GuestsContext.Provider value={data.guests}><AreasContext.Provider value={displayAreas}><LabelsContext.Provider value={{labels:data.labels,saveLabel,deleteLabel}}><div className="app-shell">
     <aside className="sidebar"><Link className="brand" to="/"><span className="brand-mark"><Flower2 size={25}/></span><span>WeddingStay<small>ROOM FOR CELEBRATION</small></span></Link>
       <div className="nav-label">YOUR WEDDING SPACE</div><nav>{[["/","Dashboard",<LayoutDashboard/>],["/guests","Guests",<Users/>],["/events","Events",<CalendarDays/>],["/stays","Stays",<BedDouble/>]].map(([to,label,icon])=><NavLink key={String(to)} to={String(to)} end={to==='/'}>{icon}<span>{label}</span></NavLink>)}</nav>
       <div className="sidebar-bottom"><div className="celebration-note"><Heart size={20}/><p>A little less coordinating.<br/><strong>A little more celebrating.</strong></p><span>{data.wedding.name}</span></div><div className="profile"><span>Y</span><div>Your wedding space<small>Shared wedding · {cloud.role}</small></div></div></div>
     </aside>
-    <div className="workspace"><header className="topbar"><div className="breadcrumb">Your wedding <ChevronRight size={14}/><span>{page}</span></div><form className="global-search" onSubmit={e=>{e.preventDefault();const p=new URLSearchParams({q:globalQuery});if(stayRoute.propertyId)p.set('property',stayRoute.propertyId);if(stayRoute.areaId)p.set('area',stayRoute.areaId);navigate((nestedNight?roomsPath(selectedDate):'/guests')+'?'+p);setGlobalQuery('');}}><Search size={17}/><input aria-label={nestedNight?"Search rooms in this stay":"Search guest groups or members"} placeholder={nestedNight?"Find a room, family or guest…":"Find a guest or family…"} value={globalQuery} onChange={e=>setGlobalQuery(e.target.value)}/><kbd>↵</kbd></form><button className="button secondary data-menu-button" onClick={()=>setDataDialog(true)}><Database size={15}/>Data</button><span className="sample-badge"><i/>{cloud.online?'Cloud connected':'Offline copy'}</span><button className="icon-button" aria-label="Sign out" title={cloud.user.email||'Sign out'} disabled={paused} onClick={()=>void cloud.signOut()}><LogOut size={17}/></button></header>
+    <div className="workspace"><header className="topbar"><div className="breadcrumb">Your wedding <ChevronRight size={14}/><span>{page}</span></div><form className="global-search" onSubmit={e=>{e.preventDefault();const p=new URLSearchParams({q:globalQuery});if(stayRoute.propertyId)p.set('property',stayRoute.propertyId);if(stayRoute.areaId)p.set('area',stayRoute.areaId);navigate((nestedNight?roomsPath(selectedDate):contextEvent?location.pathname:'/guests')+'?'+p);setGlobalQuery('');}}><Search size={17}/><input aria-label={nestedNight?"Search rooms in this stay":"Search guest groups or members"} placeholder={nestedNight?"Find a room, family or guest…":"Find a guest or family…"} value={globalQuery} onChange={e=>setGlobalQuery(e.target.value)}/><kbd>↵</kbd></form><button className="button secondary data-menu-button" onClick={()=>setDataDialog(true)}><Database size={15}/>Data</button><span className="sample-badge"><i/>{cloud.online?'Cloud connected':'Offline copy'}</span><button className="icon-button" aria-label="Sign out" title={cloud.user.email||'Sign out'} disabled={paused} onClick={()=>void cloud.signOut()}><LogOut size={17}/></button></header>
       <main key={location.pathname} className="page-enter">
         {offline.enabled&&<div className={'offline-banner '+(offline.ready?'ready':'')} role="status"><span><CheckCheck size={14}/>{offline.error|| (offline.ready?'Ready for offline use':'Preparing offline use… keep the app connected')}</span>{offline.needRefresh&&!laterUpdate&&<div className="offline-update"><span>App update available</span><button disabled={!!(selectedRoom||managementOpen||params.has('propertyEdit')||params.has('requirementEdit')||bulkOpen||inventory||manageLabels||dataDialog||pdfScope)} onClick={()=>setConfirmUpdate(true)}>Reload to update</button><button onClick={()=>setLaterUpdate(true)}>Later</button>{(selectedRoom||managementOpen||params.has('propertyEdit')||params.has('requirementEdit')||bulkOpen||inventory||manageLabels||dataDialog||pdfScope)&&<small>Close open dialogs before updating.</small>}</div>}</div>}
         {!cloud.online&&<div className="error-banner" role="status"><WifiOff size={15}/>Offline · viewing the last saved copy. Reconnect to save changes.</div>}
         {cloud.snapshot.revision>revision.current&&paused&&<div className="context-banner">Updates arrived from another device. Close the current panel to view them. Saving an older draft will be blocked.</div>}
-        <div className="context-banner date-context"><div><span>{data.referenceData?'Fictional reference data':'Shared wedding data'}</span>{nestedNight?<h2 className="night-context-title">Night of {new Date(selectedDate+'T12:00:00').toLocaleDateString(undefined,{day:'numeric',month:'long',year:'numeric'})}</h2>:<small>Your wedding, across all planned dates.</small>}</div></div>
+        <div className="context-banner date-context"><div><span>{data.referenceData?'Fictional reference data':'Shared wedding data'}</span>{nestedNight?<h2 className="night-context-title">Night of {new Date(selectedDate+'T12:00:00').toLocaleDateString(undefined,{day:'numeric',month:'long',year:'numeric'})}</h2>:<small>{contextEvent?'Guest list for '+contextEvent.name:'Your wedding, across all planned dates.'}</small>}</div></div>
         {legacyTarget ? <p className="inventory-hint">Opening your stay…</p> : staysPage ? <Stays data={data} commit={save} onAddArea={propertyId=>setInventory({kind:'area',propertyId})} renderAreas={propertyId=><div className="area-grid master">{areas.filter(a=>a.propertyId===propertyId).map(a=><AreaCard key={a.id} areaId={a.id} rooms={data.rooms} onEdit={()=>setInventory({kind:'area',area:a})}/>)}</div>} renderRooms={id=><RoomBrowser rooms={id?data.rooms:data.rooms.filter(r=>r.booked!==false||r.overdue)} areaId={id} onManageLabels={()=>setManageLabels(true)} onPdf={()=>setPdfScope('current')} onAddRoom={()=>setInventory({kind:'room',areaId:id||areas.find(a=>a.propertyId===propertyFilter)?.id})} onEditArea={id?()=>setInventory({kind:'area',area:areas.find(a=>a.id===id)!}):undefined}/>}/> : managementKind ? <PeopleEvents key={managementKind} kind={managementKind} data={data} commit={save}/> : location.pathname === '/' ? <WeddingDashboard data={savedData}/> : <div className="empty"><h2>Page not found</h2><Link className="button secondary" to="/stays">Explore stays</Link></div>}
         <footer><Flower2 size={14}/><span>Made for the moments that matter.</span><span>WeddingStay · {data.wedding.name}</span></footer>
       </main>

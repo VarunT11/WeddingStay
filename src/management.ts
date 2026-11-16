@@ -11,6 +11,28 @@ export function saveGuest(data:Dataset,guest:GuestGroup):Dataset {
   const next=stamped({...guest,name,members,category:guest.category.trim(),contact:guest.contact.trim(),notes:guest.notes.trim()},data.guests.find(g=>g.id===guest.id));
   return normalizeData({...data,guests:data.guests.some(g=>g.id===next.id)?data.guests.map(g=>g.id===next.id?next:g):[...data.guests,next]});
 }
+export function saveCategory(data:Dataset,name:string,id:string=crypto.randomUUID()):Dataset {
+ const trimmed=name.trim();if(!trimmed)throw new Error('Enter a category name.');
+ if(data.guestCategories.some(c=>c.id!==id&&c.name.toLowerCase()===trimmed.toLowerCase()))throw new Error('This category already exists.');
+ const category=stamped({id,name:trimmed},data.guestCategories.find(c=>c.id===id));
+ return normalizeData({...data,guestCategories:[...data.guestCategories.filter(c=>c.id!==id),category],guests:data.guests.map(g=>g.categoryId===id?{...g,category:trimmed}:g)});
+}
+export function removeCategory(data:Dataset,id:string):Dataset {
+ return normalizeData({...data,guestCategories:data.guestCategories.filter(c=>c.id!==id),guests:data.guests.map(g=>g.categoryId===id?{...g,categoryId:undefined,category:''}:g)});
+}
+export function saveGuestEvents(data:Dataset,guest:GuestGroup,eventIds:string[]):Dataset {
+ let next=saveGuest(data,guest);
+ for(const eventId of eventIds)if(!next.invitations.some(i=>i.eventId===eventId&&i.guestGroupId===guest.id))next=addInvitations(next,eventId,[guest.id]);
+ return next;
+}
+export function mergeGuests(data:Dataset,target:GuestGroup,sourceId:string,resolutions:Record<string,string>):Dataset {
+ if(target.id===sourceId||!data.guests.some(g=>g.id===target.id)||!data.guests.some(g=>g.id===sourceId))throw new Error('Select two different existing guest groups.');
+ const invitations=data.invitations.filter(i=>i.guestGroupId!==sourceId&&i.guestGroupId!==target.id);
+ const linked=data.invitations.filter(i=>i.guestGroupId===sourceId||i.guestGroupId===target.id);
+ for(const eventId of new Set(linked.map(i=>i.eventId))){const pair=linked.filter(i=>i.eventId===eventId);let chosen=pair[0];if(pair.length>1){const conflict=pair.some(i=>i.response!==chosen.response||i.confirmedHeadcount!==chosen.confirmedHeadcount);if(conflict){chosen=pair.find(i=>i.id===resolutions[eventId])!;if(!chosen)throw new Error('Resolve the duplicate invitation for '+data.events.find(e=>e.id===eventId)?.name+'.');}else chosen=pair.find(i=>i.guestGroupId===target.id)||chosen;}invitations.push(stamped({...chosen,guestGroupId:target.id},chosen));}
+ const next={...data,guests:data.guests.filter(g=>g.id!==sourceId),invitations,allocations:data.allocations.map(a=>a.guestGroupId===sourceId?{...a,guestGroupId:target.id}:a),requirements:data.requirements.map(r=>r.guestGroupId===sourceId?{...r,guestGroupId:target.id}:r)};
+ return saveGuest(next,target);
+}
 export function guestReferences(data:Dataset,id:string):string[] {
   const refs:string[]=[];
   if(data.invitations.some(i=>i.guestGroupId===id))refs.push('event invitations');

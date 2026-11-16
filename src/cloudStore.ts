@@ -2,10 +2,10 @@ import {collection,doc,getDocFromServer,onSnapshot,runTransaction,serverTimestam
 import {auth,database,weddingId} from './firebase';
 import {emptyDataset,normalizeData,storedData,validateData,type Dataset} from './data';
 
-export const recordKinds=['guests','events','invitations','properties','areas','rooms','allocations','requirements','labels','history'] as const;
+export const recordKinds=['guestCategories','guests','events','invitations','properties','areas','rooms','allocations','requirements','labels','history'] as const;
 type Kind=typeof recordKinds[number];
-export type CloudHead={state:'initializing'|'ready';revision:number;activeVersion?:string;previousVersion?:string;collectionRevisions:Partial<Record<Kind,number>>;wedding:Dataset['wedding'];version:3;referenceData:boolean;createdAt:string;updatedAt?:unknown;updatedBy?:string;importHash?:string};
-export type CloudSnapshot={data:Dataset;revision:number;datasetVersion?:string};
+export type CloudHead={state:'initializing'|'ready';revision:number;clientSchema?:number;activeVersion?:string;previousVersion?:string;collectionRevisions:Partial<Record<Kind,number>>;wedding:Dataset['wedding'];version:3;referenceData:boolean;createdAt:string;updatedAt?:unknown;updatedBy?:string;importHash?:string};
+export type CloudSnapshot={data:Dataset;revision:number;clientSchema?:number;datasetVersion?:string};
 const root=()=>{if(!database)throw new Error('Firebase configuration is missing.');return doc(database,'weddings',weddingId);};
 export const membershipRef=(uid:string)=>doc(root(),'members',uid);
 const json=(value:unknown)=>JSON.stringify(value);
@@ -29,7 +29,7 @@ export function watchWedding(onData:(snapshot:CloudSnapshot)=>void,onState:(stat
   for(const kind of recordKinds){const entry=rows.get(kind);if(!entry||entry.revision!==(head.collectionRevisions?.[kind]||0))return;}
   const data:Dataset={...emptyDataset(),version:3,wedding:head.wedding,createdAt:head.createdAt,updatedAt:typeof head.updatedAt==='string'?head.updatedAt:new Date().toISOString(),referenceData:head.referenceData};
   for(const kind of recordKinds)(data[kind] as unknown)=rows.get(kind)!.values;
-  try{validateData(data);if(headOnline&&[...rows.values()].every(row=>row.online)){onData({data:normalizeData(data),revision:head.revision,datasetVersion:head.activeVersion});onState('online');}else onState('offline');}catch(error){onError(error);}
+  try{validateData(data);if(headOnline&&[...rows.values()].every(row=>row.online)){onData({data:normalizeData(data),revision:head.revision,datasetVersion:head.activeVersion,clientSchema:head.clientSchema});onState('online');}else onState('offline');}catch(error){onError(error);}
  }
  function acceptHead(value:CloudHead,online:boolean){
   if(stopped||(head&&value.revision<head.revision))return;head=value;headOnline=online;
@@ -59,8 +59,8 @@ export async function commitWedding(before:CloudSnapshot,next:Dataset):Promise<C
  const uid=auth?.currentUser?.uid;if(!uid||!database)throw new Error('Sign in before saving.');
  const canonical=clean(storedData(next));validateData(canonical);
  const changes:{kind:Kind;id:string;data:unknown;deleted:boolean}[]=[];
- for(const kind of recordKinds){const previous=records(before.data,kind),current=records(canonical,kind);for(const [id,value] of current)if(json(value)!==json(previous.get(id)))changes.push({kind,id,data:value,deleted:false});for(const id of previous.keys())if(!current.has(id))changes.push({kind,id,data:null,deleted:true});}
- if(!changes.length)return before;
+ for(const kind of recordKinds){const previous=kind==='guestCategories'&&before.clientSchema!==2?new Map<string,{id:string}>():records(before.data,kind),current=records(canonical,kind);for(const [id,value] of current)if(json(value)!==json(previous.get(id)))changes.push({kind,id,data:value,deleted:false});for(const id of previous.keys())if(!current.has(id))changes.push({kind,id,data:null,deleted:true});}
+ if(!changes.length&&before.clientSchema===2)return before;
  if(changes.length>440)throw new Error('This change is too large for one shared save. Use smaller changes.');
  const revision=before.revision+1;
  await runTransaction(database,async transaction=>{
@@ -69,9 +69,9 @@ export async function commitWedding(before:CloudSnapshot,next:Dataset):Promise<C
   if(head.revision!==before.revision||head.activeVersion!==before.datasetVersion)throw new Error('The wedding changed on another device. Your draft is kept. Close this form, review the latest records and reapply your changes.');
   const collectionRevisions={...head.collectionRevisions};
   for(const change of changes){collectionRevisions[change.kind]=revision;transaction.set(doc(datasetRoot(head.activeVersion),change.kind,change.id),{data:change.data,deleted:change.deleted,revision,updatedBy:uid,updatedAt:serverTimestamp()});}
-  transaction.update(root(),{revision,collectionRevisions,updatedBy:uid,updatedAt:serverTimestamp()});
+  transaction.update(root(),{revision,clientSchema:2,schemaRevision:revision,collectionRevisions,updatedBy:uid,updatedAt:serverTimestamp()});
  });
- return {data:canonical,revision,datasetVersion:before.datasetVersion};
+ return {data:canonical,revision,datasetVersion:before.datasetVersion,clientSchema:2};
 }
 
 export async function replaceWedding(before:CloudSnapshot,candidate:Dataset,onProgress:(message:string)=>void){
@@ -86,7 +86,7 @@ export async function replaceWedding(before:CloudSnapshot,candidate:Dataset,onPr
  await runTransaction(database,async transaction=>{
   const current=await transaction.get(root()),staged=await transaction.get(version);assertCurrent(current.data() as CloudHead|undefined);
   if(staged.data()?.state!=='ready')throw new Error('The upload is incomplete. Current cloud data was kept.');
-  transaction.update(root(),{activeVersion:version.id,previousVersion:before.datasetVersion||'legacy',revision,collectionRevisions:Object.fromEntries(recordKinds.map(kind=>[kind,data[kind].length?revision:0])),wedding:data.wedding,version:3,referenceData:data.referenceData,createdAt:data.createdAt,updatedAt:serverTimestamp(),updatedBy:uid});
+  transaction.update(root(),{activeVersion:version.id,previousVersion:before.datasetVersion||'legacy',revision,clientSchema:2,schemaRevision:revision,collectionRevisions:Object.fromEntries(recordKinds.map(kind=>[kind,data[kind].length?revision:0])),wedding:data.wedding,version:3,referenceData:data.referenceData,createdAt:data.createdAt,updatedAt:serverTimestamp(),updatedBy:uid});
  });
 }
 
@@ -98,10 +98,10 @@ export async function initializeWedding(candidate:Dataset,onProgress:(message:st
   const snapshot=await transaction.get(root()),head=snapshot.data();
   if(head?.state==='ready')throw new Error('Cloud data already exists. Replacement is disabled.');
   if(head?.state==='initializing'&&head.importHash!==hash)throw new Error('A different import is in progress. Choose the same file to resume.');
-  transaction.set(root(),{state:'initializing',revision:0,collectionRevisions:{},wedding:data.wedding,version:3,referenceData:data.referenceData,createdAt:data.createdAt,updatedAt:serverTimestamp(),updatedBy:uid,importHash:hash});
+  transaction.set(root(),{state:'initializing',revision:0,clientSchema:2,schemaRevision:0,collectionRevisions:{},wedding:data.wedding,version:3,referenceData:data.referenceData,createdAt:data.createdAt,updatedAt:serverTimestamp(),updatedBy:uid,importHash:hash});
  });
  const all=recordKinds.flatMap(kind=>[...records(data,kind)].map(([id,value])=>({kind,id,value})));
  for(let start=0;start<all.length;start+=150){const batch=writeBatch(database);for(const record of all.slice(start,start+150))batch.set(doc(root(),record.kind,record.id),{data:record.value,deleted:false,revision:1,updatedBy:uid,updatedAt:serverTimestamp()});await batch.commit();onProgress('Uploaded '+Math.min(start+150,all.length)+' of '+all.length+' records…');}
  const collectionRevisions=Object.fromEntries(recordKinds.map(kind=>[kind,data[kind].length?1:0]));
- await runTransaction(database,async transaction=>{const current=await transaction.get(root());if(current.data()?.importHash!==hash||current.data()?.state!=='initializing')throw new Error('Cloud initialization changed. Reload and review.');transaction.update(root(),{state:'ready',revision:1,collectionRevisions,updatedAt:serverTimestamp(),updatedBy:uid});});
+ await runTransaction(database,async transaction=>{const current=await transaction.get(root());if(current.data()?.importHash!==hash||current.data()?.state!=='initializing')throw new Error('Cloud initialization changed. Reload and review.');transaction.update(root(),{state:'ready',revision:1,schemaRevision:1,collectionRevisions,updatedAt:serverTimestamp(),updatedBy:uid});});
 }

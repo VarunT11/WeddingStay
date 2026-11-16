@@ -59,6 +59,7 @@ export function parseDataset(contents:string):Dataset {
  let raw:unknown;try{raw=JSON.parse(contents);}catch{throw new Error('This file is not valid JSON. Select a WeddingStay data export.');}
  const data=object(raw,'Data file');
  if(data.version===3){
+  if(data.guestCategories!==undefined&&!Array.isArray(data.guestCategories))throw new Error('Guest categories must be a list.');
   for(const key of ['areas','rooms','history','labels','guests','events','invitations','properties','allocations','requirements'])if(!Array.isArray(data[key]))throw new Error(`The data file is missing its ${key} list.`);
   (data.areas as unknown[]).forEach(area);(data.rooms as unknown[]).forEach(room);(data.history as unknown[]).forEach(history);
   (data.allocations as unknown[]).forEach((a,i)=>allocation(a,`Allocation ${i+1}`));

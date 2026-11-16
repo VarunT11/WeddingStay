@@ -7,7 +7,7 @@ service cloud.firestore {
     function owner(wedding) { return active(wedding) && member(wedding).role == 'owner'; }
     function head(wedding) { return get(/databases/$(database)/documents/weddings/$(wedding)).data; }
     function afterHead(wedding) { return getAfter(/databases/$(database)/documents/weddings/$(wedding)).data; }
-    function recordCollection(kind) { return kind in ['guests','events','invitations','properties','areas','rooms','allocations','requirements','labels','history']; }
+    function recordCollection(kind) { return kind in ['guestCategories','guests','events','invitations','properties','areas','rooms','allocations','requirements','labels','history']; }
     function versionOf(value) { return value.get('activeVersion', ''); }
     function validRecord(id) {
       return request.resource.data.keys().hasOnly(['data','deleted','revision','updatedBy','updatedAt'])
@@ -29,15 +29,15 @@ service cloud.firestore {
       allow get: if active(wedding);
       allow list, delete: if false;
       allow create: if owner(wedding) && request.resource.data.state == 'initializing' && request.resource.data.revision == 0 && request.resource.data.updatedBy == request.auth.uid;
-      allow update: if active(wedding) && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && (
+      allow update: if active(wedding) && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && request.resource.data.clientSchema == 2 && request.resource.data.schemaRevision == request.resource.data.revision && (
         (resource.data.state == 'ready' && request.resource.data.state == 'ready'
           && request.resource.data.revision == resource.data.revision + 1
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['revision','collectionRevisions','updatedAt','updatedBy']))
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['revision','clientSchema','schemaRevision','collectionRevisions','updatedAt','updatedBy']))
         || (owner(wedding) && resource.data.state == 'ready' && request.resource.data.state == 'ready'
           && request.resource.data.revision == resource.data.revision + 1
           && versionOf(request.resource.data) != versionOf(resource.data)
           && request.resource.data.previousVersion == (versionOf(resource.data) == '' ? 'legacy' : versionOf(resource.data))
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['activeVersion','previousVersion','revision','collectionRevisions','wedding','version','referenceData','createdAt','updatedAt','updatedBy'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['activeVersion','previousVersion','clientSchema','schemaRevision','revision','collectionRevisions','wedding','version','referenceData','createdAt','updatedAt','updatedBy'])
           && staged(wedding, request.resource.data.activeVersion).state == 'ready'
           && staged(wedding, request.resource.data.activeVersion).createdBy == request.auth.uid
           && staged(wedding, request.resource.data.activeVersion).baseRevision == resource.data.revision

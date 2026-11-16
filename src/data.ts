@@ -1,4 +1,4 @@
-import { STORAGE_KEY, LEGACY_STORAGE_KEY, MigrationRequired, seed, projectData, propertyForRoom, allocationOn, countOf, statusOf, isDate, overlaps, type Dataset, type Room, type Allocation, type StayAllocation, type DateRange, type HistoryEntry, type AllocationLabel, type LegacyDataset } from './model';
+import { withGuestCategories, STORAGE_KEY, LEGACY_STORAGE_KEY, MigrationRequired, seed, projectData, propertyForRoom, allocationOn, countOf, statusOf, isDate, overlaps, type Dataset, type Room, type Allocation, type StayAllocation, type DateRange, type HistoryEntry, type AllocationLabel, type LegacyDataset } from './model';
 export * from './model';
 
 export function summary(inventory: Room[]) {
@@ -21,6 +21,9 @@ export function validateData(data: Dataset): void {
   const properties=unique(data.properties,'Property'),areas=unique(data.areas,'Area'),rooms=unique(data.rooms,'Room'),labels=unique(data.labels,'Label'),guests=unique(data.guests,'Guest group'),events=unique(data.events,'Event');
   unique(data.allocations,'Allocation');unique(data.invitations,'Invitation');unique(data.requirements,'Requirement');unique(data.history,'History');
   const named=(s:string)=>typeof s==='string'&&!!s.trim();
+  const categories=unique(data.guestCategories||[],'Guest category'),categoryNames=new Set<string>();
+  for(const category of data.guestCategories||[]){const key=category.name?.trim().toLowerCase();requireValue(named(category.name)&&!categoryNames.has(key),'Use a unique, nonempty guest category name.');categoryNames.add(key);}
+  for(const guest of data.guests)requireValue(!guest.categoryId||categories.has(guest.categoryId),'Guest category no longer exists.');
   for(const p of data.properties){requireValue(named(p.name)&&Array.isArray(p.bookedRanges)&&typeof p.address==='string'&&typeof p.notes==='string','Property details are incomplete.');requireValue((p.contactName===undefined||typeof p.contactName==='string')&&(p.contactPhone===undefined||typeof p.contactPhone==='string'),'Property contact details must be text.');p.bookedRanges.forEach(range);}
   const areaNames=new Set<string>(),numbers=new Set<string>(),special=new Set<string>(),labelNames=new Set<string>();
   for(const a of data.areas){const key=a.propertyId+':'+a.name?.trim().toLowerCase();requireValue(properties.has(a.propertyId)&&named(a.name)&&!areaNames.has(key),'Use a unique area name within an existing property.');requireValue(typeof a.description==='string'&&typeof a.motif==='string','Area details are incomplete.');areaNames.add(key);}
@@ -53,7 +56,7 @@ export function validateData(data: Dataset): void {
   for(const r of data.requirements){range(r);
     requireValue(!data.requirements.some(other=>other.id!==r.id&&other.labelId===r.labelId&&overlaps(other,r)&&(!other.propertyId||!r.propertyId||other.propertyId===r.propertyId)&&(!other.guestGroupId||!r.guestGroupId||other.guestGroupId===r.guestGroupId)),'Overlapping requirements would count the same allocations twice. Choose separate dates, labels or non-overlapping property/guest scopes.');requireValue(labels.has(r.labelId)&&(!r.propertyId||properties.has(r.propertyId))&&(!r.guestGroupId||guests.has(r.guestGroupId))&&Number.isInteger(r.roomsRequired)&&r.roomsRequired>0,'Room requirement details are invalid.');}
 }
-export function normalizeData(data:Dataset): Dataset { validateData(data);return projectData(data); }
+export function normalizeData(data:Dataset): Dataset { const next=withGuestCategories(data);validateData(next);return projectData(next); }
 export function initialData(): Dataset {
   const saved=localStorage.getItem(STORAGE_KEY);
   if(saved)return normalizeData(JSON.parse(saved));

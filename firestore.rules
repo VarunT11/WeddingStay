@@ -1,0 +1,46 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function member(wedding) { return get(/databases/$(database)/documents/weddings/$(wedding)/members/$(request.auth.uid)).data; }
+    function active(wedding) { return signedIn() && member(wedding).active == true && member(wedding).role in ['owner', 'coordinator']; }
+    function owner(wedding) { return active(wedding) && member(wedding).role == 'owner'; }
+    function head(wedding) { return get(/databases/$(database)/documents/weddings/$(wedding)).data; }
+    function afterHead(wedding) { return getAfter(/databases/$(database)/documents/weddings/$(wedding)).data; }
+    function recordCollection(kind) { return kind in ['guests','events','invitations','properties','areas','rooms','allocations','requirements','labels','history']; }
+    match /weddings/{wedding} {
+      allow get: if active(wedding);
+      allow list, delete: if false;
+      allow create: if owner(wedding) && request.resource.data.state == 'initializing' && request.resource.data.revision == 0 && request.resource.data.updatedBy == request.auth.uid;
+      allow update: if active(wedding) && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && (
+        (resource.data.state == 'ready' && request.resource.data.state == 'ready'
+          && request.resource.data.revision == resource.data.revision + 1
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['revision','collectionRevisions','updatedAt','updatedBy']))
+        || (owner(wedding) && resource.data.state != 'ready' && request.resource.data.state in ['initializing','ready']
+          && (resource.data.state != 'initializing' || request.resource.data.importHash == resource.data.importHash))
+      );
+      match /members/{uid} {
+        allow get: if signedIn() && (request.auth.uid == uid || owner(wedding));
+        allow list: if owner(wedding);
+        // Memberships are provisioned by the owner through the Firebase console.
+        allow write: if false;
+      }
+      match /{kind}/{id} {
+        allow read: if recordCollection(kind) && active(wedding) && (owner(wedding) || head(wedding).state == 'ready');
+        allow create, update: if recordCollection(kind) && active(wedding)
+          && request.resource.data.keys().hasOnly(['data','deleted','revision','updatedBy','updatedAt'])
+          && request.resource.data.deleted is bool && request.resource.data.revision is int
+          && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time
+          && ((request.resource.data.deleted == true && request.resource.data.data == null)
+            || (request.resource.data.data is map && request.resource.data.data.id == id))
+          && ((head(wedding).state == 'initializing' && owner(wedding) && request.resource.data.revision == 1)
+            || (head(wedding).state == 'ready' && afterHead(wedding).revision == head(wedding).revision + 1
+              && afterHead(wedding).updatedBy == request.auth.uid
+              && request.resource.data.revision == afterHead(wedding).revision
+              && afterHead(wedding).collectionRevisions[kind] == afterHead(wedding).revision))
+          && (kind != 'history' || !exists(/databases/$(database)/documents/weddings/$(wedding)/history/$(id)) || head(wedding).state == 'initializing');
+        allow delete: if false;
+      }
+    }
+  }
+}

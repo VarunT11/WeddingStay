@@ -1,7 +1,9 @@
-import { defineConfig } from 'vite';
+import { defineConfig,loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 export default defineConfig(({mode})=>{
+ const environment=loadEnv(mode,process.cwd(),'VITE_FIREBASE_');
+ if(mode==='pages'&&['API_KEY','AUTH_DOMAIN','PROJECT_ID','APP_ID'].some(key=>!environment['VITE_FIREBASE_'+key]))throw new Error('Firebase web configuration is required for the Pages build. Set the four VITE_FIREBASE_* repository variables.');
  const base=mode==='pages'?'/WeddingStay/':'/';
  return {base,plugins: [react(), {
  name:'weddingstay-offline-assets',

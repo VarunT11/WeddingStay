@@ -7,11 +7,13 @@
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
     "build:pages": "tsc -b && vite build --mode pages",
+    "deploy:rules": "npx firebase-tools deploy --only firestore:rules --project weddingstay-d0be2",
     "preview": "vite preview --host 127.0.0.1",
     "setup:https": "node scripts/setup-https.mjs",
     "local": "npm run build && node scripts/serve-local.mjs"
   },
   "dependencies": {
+    "firebase": "^13.3.0",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.9",
     "lucide-react": "^0.468.0",

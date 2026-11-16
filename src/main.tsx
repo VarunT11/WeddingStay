@@ -2,8 +2,8 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { createRoot } from 'react-dom/client';
 import { createBrowserRouter, createHashRouter, RouterProvider, useLocation, useNavigate as useRouterNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowDownLeft, ArrowRight, ArrowUpRight, BedDouble, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, DoorOpen, Flower2, Heart, LayoutDashboard, Leaf, MapPin, Minus, Plus, Pencil, Trash2, Tag, ArrowRightLeft, Database, Download, Upload, History, Undo2, FileDown, Search, SlidersHorizontal, Sparkles, Users, Waves, X } from 'lucide-react';
-import { countOf, initialData, validateData, createHistoryEvent, recoverAction, recoveryReason, historyTitles, filterRooms, statusOf, summary, STORAGE_KEY, type Area, type AllocationLabel, type Dataset, type Room, type Status, type HistoryEntry } from './data';
-import {parseDataset,serializeDataset,exportFilename,transferPreview} from './transfer';
+import { countOf, validateData, createHistoryEvent, recoverAction, recoveryReason, historyTitles, filterRooms, statusOf, summary, type Area, type AllocationLabel, type Dataset, type Room, type Status, type HistoryEntry } from './data';
+import {serializeDataset,exportFilename} from './transfer';
 import {generateReport, reportSelection, type ReportContext, type ReportOptions, type ReportScope} from './reports';
 import {useOfflineApp} from './pwa';
 import './styles.css';
@@ -16,35 +16,38 @@ import {DateContext,Link,NavLink,useNavigate,dated} from './navigation';
 import {projectData,isDate} from './data';
 import {PeopleEvents} from './PeopleEvents';
 import {Confirm,useDialog} from './dialogs';
-import {CalendarDays} from 'lucide-react';
-import {emptyDataset,normalizeData,storedData,MigrationRequired,migrateLegacy,seed,type LegacyDataset,type MigrationSettings} from './data';
+import {CalendarDays,LogOut,Cloud,WifiOff} from 'lucide-react';
+import {CloudAccess,useCloud} from './CloudAccess';
+import {commitWedding,type CloudSnapshot} from './cloudStore';
+import {cloudError} from './firebase';
+import {normalizeData} from './data';
 
 const AreasContext=createContext<Area[]>([]);
 const PropertiesContext=createContext<Dataset['properties']>([]);
 const GuestsContext=createContext<Dataset['guests']>([]);
 type LabelResult = {id?:string;error?:string};
-const LabelsContext=createContext<{labels:AllocationLabel[];saveLabel:(name:string,id?:string)=>LabelResult;deleteLabel:(id:string)=>string|null}>({labels:[],saveLabel:()=>({error:'Unavailable'}),deleteLabel:()=>null});
+const LabelsContext=createContext<{labels:AllocationLabel[];saveLabel:(name:string,id?:string)=>Promise<LabelResult>;deleteLabel:(id:string)=>Promise<string|null>}>({labels:[],saveLabel:async()=>({error:'Unavailable'}),deleteLabel:async()=>null});
 type InventoryTarget = {kind:'area';area?:Area;propertyId?:string}|{kind:'room';room?:Room;areaId?:string};
 const statuses: Status[] = ['Available', 'Allotted', 'Occupied'];
 const statusClass = (s: string) => s.toLowerCase();
 const areaIcon = (id: string) => id === 'garden' ? <Leaf/> : id === 'poolside' ? <Waves/> : id === 'main' ? <DoorOpen/> : <Flower2/>;
 function Badge({status}: {status: Status}) { return <span className={`badge ${statusClass(status)}`}><i/>{status}</span>; }
 function App() {
+  const cloud=useCloud();
+  const revision=useRef(cloud.snapshot.revision),savingRef=useRef(false);
+  const [saving,setSaving]=useState(false);
   const offline=useOfflineApp();
   const [laterUpdate,setLaterUpdate]=useState(false);
   const [confirmUpdate,setConfirmUpdate]=useState(false);
-  const [load] = useState(() => { try { return {data: initialData(), error: '',legacy:null as LegacyDataset|null}; } catch(e) { return {data:emptyDataset(),error:e instanceof Error?e.message:'Local storage is unavailable.',legacy:e instanceof MigrationRequired?e.legacy:null}; } });
-  const [savedData, setData] = useState(load.data);
-  const [migration,setMigration]=useState(load.legacy);
-  const [error,setError] = useState(load.error);
-  useEffect(()=>{if(load.error)return;try{if(!localStorage.getItem(STORAGE_KEY))localStorage.setItem(STORAGE_KEY,JSON.stringify(storedData(load.data)));}catch{setError('Reference data could not be saved on this device. Keep this page open and try again.');}},[load]);
+  const [savedData,setData]=useState(cloud.snapshot.data);
+  const [error,setError]=useState('');
   const [toast,setToast] = useState('');
   const [inventory,setInventory] = useState<InventoryTarget|null>(null);
   const [manageLabels,setManageLabels]=useState(false);
   const [dataDialog,setDataDialog]=useState(false);
   const [pdfScope,setPdfScope]=useState<ReportScope|null>(null);
   const location = useLocation(); const rawNavigate = useRouterNavigate(); const [params] = useSearchParams();
-  const [rememberedDate,setRememberedDate]=useState(()=>{try{const d=localStorage.getItem('weddingstay.selectedDate');return d&&isDate(d)?d:load.data.wedding.defaultDate;}catch{return load.data.wedding.defaultDate;}});
+  const [rememberedDate,setRememberedDate]=useState(()=>{try{const d=localStorage.getItem('weddingstay.selectedDate');return d&&isDate(d)?d:cloud.snapshot.data.wedding.defaultDate;}catch{return cloud.snapshot.data.wedding.defaultDate;}});
   const stayRoute=parseStayRoute(location.pathname);
   const requestedDate=params.get('date'),selectedDate=stayRoute.date||(requestedDate&&isDate(requestedDate)?requestedDate:rememberedDate);
   const legacyTarget=legacyStayTarget(location.pathname,params,savedData,selectedDate);
@@ -64,19 +67,22 @@ function App() {
   const bulkOpen=!!stayRoute.date&&params.get('bulk')==='1';
   const selectedRoom = !stayRoute.date||bulkOpen?undefined:data.rooms.find(r => r.id === params.get('room'));
   useEffect(() => { if (toast) { const id = window.setTimeout(()=>setToast(''),3500); return ()=>clearTimeout(id); } },[toast]);
-  function save(next: Dataset, message: string) {
-    try { next=normalizeData({...next,updatedAt:new Date().toISOString()});localStorage.setItem(STORAGE_KEY, JSON.stringify(storedData(next))); setData(next); setError(''); setToast(message); return true; }
-    catch { setError('Your changes could not be saved on this device. Please keep this page open and try again.'); return false; }
+  async function save(next: Dataset, message: string):Promise<boolean> {
+    if(savingRef.current)return false;
+    if(!cloud.online){setError('You are offline. Reconnect before saving. Your draft is kept.');return false;}
+    savingRef.current=true;setSaving(true);setError('');
+    try {
+      const before:CloudSnapshot={data:savedData,revision:revision.current};
+      const confirmed=await commitWedding(before,normalizeData({...next,updatedAt:new Date().toISOString()}));
+      revision.current=confirmed.revision;setData(confirmed.data);setToast(message);return true;
+    } catch(cause){setError(cloudError(cause));return false;}
+    finally{savingRef.current=false;setSaving(false);}
   }
-  function recover(eventId:string):string|null {
-    try{return save(recoverAction(data,eventId),'Original allocation restored')?null:'Could not save recovery. Current data has been kept.';}
+  async function recover(eventId:string):Promise<string|null> {
+    try{return await save(recoverAction(data,eventId),'Original allocation restored')?null:'Could not save recovery. Current data has been kept.';}
     catch(e){return e instanceof Error?e.message:'Recovery is unavailable.';}
   }
-  function importData(next:Dataset):boolean {
-    if(!save(next,'Data imported successfully'))return false;
-    setInventory(null);setManageLabels(false);setDataDialog(false);setPdfScope(null);navigate('/',{replace:true});return true;
-  }
-  function saveInventory(target:Area|Room):string|null {
+  async function saveInventory(target:Area|Room):Promise<string|null> {
     const now=new Date().toISOString();
     let next:Dataset;
     if('number' in target){
@@ -89,17 +95,17 @@ function App() {
       next={...data,areas:previous?areas.map(a=>a.id===area.id?area:a):[...areas,area]};
     }
     try{validateData(next);}catch(e){return e instanceof Error?e.message:'Please check these details.';}
-    return save(next,'Details saved')?null:'Could not save on this device. Please try again.';
+    return await save(next,'Details saved')?null:'Could not save to the cloud. Please try again.';
   }
-  function deleteInventory(target:Area|Room):string|null {
+  async function deleteInventory(target:Area|Room):Promise<string|null> {
     if('number' in target){
       if(data.allocations.some(a=>a.roomId===target.id))return 'This room has saved stays. Keep it to preserve their references.';
-      return save({...data,rooms:data.rooms.filter(r=>r.id!==target.id)},'Room deleted')?null:'Could not save the deletion.';
+      return await save({...data,rooms:data.rooms.filter(r=>r.id!==target.id)},'Room deleted')?null:'Could not save the deletion.';
     }
     if(data.rooms.some(r=>r.areaId===target.id))return 'Move or remove all rooms before deleting this area.';
-    return save({...data,areas:areas.filter(a=>a.id!==target.id)},'Area deleted')?null:'Could not save the deletion.';
+    return await save({...data,areas:areas.filter(a=>a.id!==target.id)},'Area deleted')?null:'Could not save the deletion.';
   }
-  function saveLabel(rawName:string,id?:string):LabelResult {
+  async function saveLabel(rawName:string,id?:string):Promise<LabelResult> {
     const name=rawName.trim();
     if(!name)return {error:'Enter a label name.'};
     if(data.labels.some(label=>label.id!==id&&label.name.trim().toLowerCase()===name.toLowerCase()))return {error:'A label with this name already exists. Choose it from the list.'};
@@ -107,30 +113,33 @@ function App() {
     if(id&&!previous)return {error:'This label no longer exists.'};
     const label:AllocationLabel={id:id||crypto.randomUUID(),name,createdAt:previous?.createdAt||now,updatedAt:now};
     const next={...data,labels:id?data.labels.map(l=>l.id===id?label:l):[...data.labels,label]};
-    return save(next,id?'Label renamed':'Label created')?{id:label.id}:{error:'Could not save this label. Please try again.'};
+    return await save(next,id?'Label renamed':'Label created')?{id:label.id}:{error:'Could not save this label. Please try again.'};
   }
-  function deleteLabel(id:string):string|null {
+  async function deleteLabel(id:string):Promise<string|null> {
     if(data.requirements.some(r=>r.labelId===id))return 'This label has room requirements. Remove those requirements before deleting the label.';
     const now=new Date().toISOString();
     const updatedRooms=data.rooms.map(room=>room.allocation?.labelId===id?{...room,updatedAt:now,allocation:{...room.allocation,labelId:undefined,updatedAt:now}}:room);
     const events=data.rooms.filter(room=>room.allocation?.labelId===id).map(room=>createHistoryEvent(data,'allocation-edited',[room],[updatedRooms.find(r=>r.id===room.id)!]));
     const next={...data,labels:data.labels.filter(l=>l.id!==id),allocations:data.allocations.map(a=>a.labelId===id?{...a,labelId:undefined,updatedAt:now}:a),rooms:updatedRooms,history:[...data.history,...events]};
-    if(!save(next,'Label removed; allocations kept'))return 'Could not remove this label.';
+    if(!await save(next,'Label removed; allocations kept'))return 'Could not remove this label.';
     if(params.get('label')===id){const p=new URLSearchParams(params);p.delete('label');navigate({pathname:location.pathname,search:p.toString()},{replace:true,preventScrollReset:true});}
     return null;
   }
   const closeRoom = () => { const back = location.state as {roomOverlay?: boolean} | null; if (back?.roomOverlay) navigate(-1); else { const p = new URLSearchParams(params); p.delete('room');p.delete('allocation'); navigate({pathname:location.pathname,search:p.toString()},{replace:true}); } };
   const nestedNight=!!stayRoute.date;
+  const paused=!!(selectedRoom||managementOpen||params.has('propertyEdit')||params.has('requirementEdit')||bulkOpen||inventory||manageLabels||dataDialog||pdfScope||saving);
+  useEffect(()=>{if(!paused&&cloud.snapshot.revision>revision.current){revision.current=cloud.snapshot.revision;setData(cloud.snapshot.data);}},[cloud.snapshot,paused]);
   return <DateContext.Provider value={selectedDate}><PropertiesContext.Provider value={data.properties}><GuestsContext.Provider value={data.guests}><AreasContext.Provider value={displayAreas}><LabelsContext.Provider value={{labels:data.labels,saveLabel,deleteLabel}}><div className="app-shell">
     <aside className="sidebar"><Link className="brand" to="/"><span className="brand-mark"><Flower2 size={25}/></span><span>WeddingStay<small>ROOM FOR CELEBRATION</small></span></Link>
       <div className="nav-label">YOUR WEDDING SPACE</div><nav>{[["/","Dashboard",<LayoutDashboard/>],["/guests","Guests",<Users/>],["/events","Events",<CalendarDays/>],["/stays","Stays",<BedDouble/>]].map(([to,label,icon])=><NavLink key={String(to)} to={String(to)} end={to==='/'}>{icon}<span>{label}</span></NavLink>)}</nav>
-      <div className="sidebar-bottom"><div className="celebration-note"><Heart size={20}/><p>A little less coordinating.<br/><strong>A little more celebrating.</strong></p><span>{data.wedding.name}</span></div><div className="profile"><span>Y</span><div>Your wedding space<small>Personal · saved on this device</small></div></div></div>
+      <div className="sidebar-bottom"><div className="celebration-note"><Heart size={20}/><p>A little less coordinating.<br/><strong>A little more celebrating.</strong></p><span>{data.wedding.name}</span></div><div className="profile"><span>Y</span><div>Your wedding space<small>Shared wedding · {cloud.role}</small></div></div></div>
     </aside>
-    <div className="workspace"><header className="topbar"><div className="breadcrumb">Your wedding <ChevronRight size={14}/><span>{page}</span></div><form className="global-search" onSubmit={e=>{e.preventDefault();const p=new URLSearchParams({q:globalQuery});if(stayRoute.propertyId)p.set('property',stayRoute.propertyId);if(stayRoute.areaId)p.set('area',stayRoute.areaId);navigate((nestedNight?roomsPath(selectedDate):'/guests')+'?'+p);setGlobalQuery('');}}><Search size={17}/><input aria-label={nestedNight?"Search rooms in this stay":"Search guest groups or members"} placeholder={nestedNight?"Find a room, family or guest…":"Find a guest or family…"} value={globalQuery} onChange={e=>setGlobalQuery(e.target.value)}/><kbd>↵</kbd></form><button className="button secondary data-menu-button" onClick={()=>setDataDialog(true)}><Database size={15}/>Data</button><span className="sample-badge"><i/>Saved locally</span><span className="avatar">Y</span></header>
+    <div className="workspace"><header className="topbar"><div className="breadcrumb">Your wedding <ChevronRight size={14}/><span>{page}</span></div><form className="global-search" onSubmit={e=>{e.preventDefault();const p=new URLSearchParams({q:globalQuery});if(stayRoute.propertyId)p.set('property',stayRoute.propertyId);if(stayRoute.areaId)p.set('area',stayRoute.areaId);navigate((nestedNight?roomsPath(selectedDate):'/guests')+'?'+p);setGlobalQuery('');}}><Search size={17}/><input aria-label={nestedNight?"Search rooms in this stay":"Search guest groups or members"} placeholder={nestedNight?"Find a room, family or guest…":"Find a guest or family…"} value={globalQuery} onChange={e=>setGlobalQuery(e.target.value)}/><kbd>↵</kbd></form><button className="button secondary data-menu-button" onClick={()=>setDataDialog(true)}><Database size={15}/>Data</button><span className="sample-badge"><i/>{cloud.online?'Cloud connected':'Offline copy'}</span><button className="icon-button" aria-label="Sign out" title={cloud.user.email||'Sign out'} disabled={paused} onClick={()=>void cloud.signOut()}><LogOut size={17}/></button></header>
       <main key={location.pathname} className="page-enter">
         {offline.enabled&&<div className={'offline-banner '+(offline.ready?'ready':'')} role="status"><span><CheckCheck size={14}/>{offline.error|| (offline.ready?'Ready for offline use':'Preparing offline use… keep the app connected')}</span>{offline.needRefresh&&!laterUpdate&&<div className="offline-update"><span>App update available</span><button disabled={!!(selectedRoom||managementOpen||params.has('propertyEdit')||params.has('requirementEdit')||bulkOpen||inventory||manageLabels||dataDialog||pdfScope)} onClick={()=>setConfirmUpdate(true)}>Reload to update</button><button onClick={()=>setLaterUpdate(true)}>Later</button>{(selectedRoom||managementOpen||params.has('propertyEdit')||params.has('requirementEdit')||bulkOpen||inventory||manageLabels||dataDialog||pdfScope)&&<small>Close open dialogs before updating.</small>}</div>}</div>}
-        {error && <div className="error-banner" role="alert">{error}</div>}
-        <div className="context-banner date-context"><div><span>{data.referenceData?'Fictional reference data':'Your wedding data'}</span>{nestedNight?<h2 className="night-context-title">Night of {new Date(selectedDate+'T12:00:00').toLocaleDateString(undefined,{day:'numeric',month:'long',year:'numeric'})}</h2>:<small>Your wedding, across all planned dates.</small>}</div></div>
+        {!cloud.online&&<div className="error-banner" role="status"><WifiOff size={15}/>Offline · viewing the last saved copy. Reconnect to save changes.</div>}
+        {cloud.snapshot.revision>revision.current&&paused&&<div className="context-banner">Updates arrived from another device. Close the current panel to view them. Saving an older draft will be blocked.</div>}
+        <div className="context-banner date-context"><div><span>{data.referenceData?'Fictional reference data':'Shared wedding data'}</span>{nestedNight?<h2 className="night-context-title">Night of {new Date(selectedDate+'T12:00:00').toLocaleDateString(undefined,{day:'numeric',month:'long',year:'numeric'})}</h2>:<small>Your wedding, across all planned dates.</small>}</div></div>
         {legacyTarget ? <p className="inventory-hint">Opening your stay…</p> : staysPage ? <Stays data={data} commit={save} onAddArea={propertyId=>setInventory({kind:'area',propertyId})} renderAreas={propertyId=><div className="area-grid master">{areas.filter(a=>a.propertyId===propertyId).map(a=><AreaCard key={a.id} areaId={a.id} rooms={data.rooms} onEdit={()=>setInventory({kind:'area',area:a})}/>)}</div>} renderRooms={id=><RoomBrowser rooms={id?data.rooms:data.rooms.filter(r=>r.booked!==false||r.overdue)} areaId={id} onManageLabels={()=>setManageLabels(true)} onPdf={()=>setPdfScope('current')} onAddRoom={()=>setInventory({kind:'room',areaId:id||areas.find(a=>a.propertyId===propertyFilter)?.id})} onEditArea={id?()=>setInventory({kind:'area',area:areas.find(a=>a.id===id)!}):undefined}/>}/> : managementKind ? <PeopleEvents key={managementKind} kind={managementKind} data={data} commit={save}/> : location.pathname === '/' ? <WeddingDashboard data={savedData}/> : <div className="empty"><h2>Page not found</h2><Link className="button secondary" to="/stays">Explore stays</Link></div>}
         <footer><Flower2 size={14}/><span>Made for the moments that matter.</span><span>WeddingStay · {data.wedding.name}</span></footer>
       </main>
@@ -141,10 +150,11 @@ function App() {
     {bulkOpen&&<BulkAllocation data={data} commit={save} onClose={()=>{if((location.state as {bulkOverlay?:boolean}|null)?.bulkOverlay)navigate(-1);else{const p=new URLSearchParams(params);p.delete('bulk');p.delete('requirement');navigate({pathname:location.pathname,search:p.toString()},{replace:true,state:location.state,preventScrollReset:true});}}}/>}
     {inventory&&<InventoryEditor key={inventory.kind+(inventory.kind==='room'?inventory.room?.id||'new':inventory.area?.id||'new')} target={inventory} rooms={data.rooms} properties={data.properties} onSave={saveInventory} onDelete={deleteInventory} onClose={()=>setInventory(null)}/>}
     {manageLabels&&<LabelsManager rooms={data.rooms} onClose={()=>setManageLabels(false)}/>}
-    {dataDialog&&<DataDialog data={data} onImport={importData} onPdf={nestedNight?()=>{setDataDialog(false);setPdfScope('all');}:undefined} onClose={()=>setDataDialog(false)}/>}
+    {dataDialog&&<DataDialog data={data} onPdf={nestedNight?()=>{setDataDialog(false);setPdfScope('all');}:undefined} onClose={()=>setDataDialog(false)}/>}
     {pdfScope&&nestedNight&&<PdfDialog data={data} context={reportContext} initialScope={pdfScope} onClose={()=>setPdfScope(null)}/>}
-    {migration&&<MigrationSetup legacy={migration} onReady={next=>{if(save(next,'Existing data migrated successfully')){setMigration(null);return true;}return false;}}/>}
     {confirmUpdate&&<Confirm title="Apply the app update?" text="Saved allocations will stay on this device. The app will reload with the new version." action="Reload & update" onCancel={()=>setConfirmUpdate(false)} onConfirm={()=>{setConfirmUpdate(false);void offline.update();}}/>}
+    {saving&&<div className="cloud-saving" role="status"><Cloud size={22}/>Saving to the shared wedding…</div>}
+    {error&&<div className="cloud-error-toast" role="alert"><span>{error}</span><button className="quiet-button" onClick={()=>setError('')}>Dismiss</button></div>}
     {toast && <div role="status" className="toast"><CheckCheck size={18}/>{toast}</div>}
   </div></LabelsContext.Provider></AreasContext.Provider></GuestsContext.Provider></PropertiesContext.Provider></DateContext.Provider>;
 }
@@ -197,7 +207,7 @@ function CompactRooms({rooms,onOpen}: {rooms:Room[];onOpen:(room:Room)=>void}) {
  })}</div>;
 }
 
-function RoomHistory({room,data,onRecover}: {room:Room;data:Dataset;onRecover:(eventId:string)=>string|null}) {
+function RoomHistory({room,data,onRecover}: {room:Room;data:Dataset;onRecover:(eventId:string)=>Promise<string|null>}) {
  const [confirm,setConfirm]=useState<HistoryEntry|null>(null),[error,setError]=useState('');
  const events=data.history.filter(e=>e.roomId===room.id||e.destinationRoomId===room.id).slice().reverse();
  const recoveryLabel=(e:HistoryEntry)=>e.action==='checked-in'?'Undo check-in':e.action==='checked-out'?'Undo checkout':'Restore cancelled allocation';
@@ -208,7 +218,7 @@ function RoomHistory({room,data,onRecover}: {room:Room;data:Dataset;onRecover:(e
  const recoverable=['checked-in','checked-out','allocation-cancelled'].includes(event.action);
  const reason=recoverable?recoveryReason(data,event):null;
  return <article className="history-event" key={event.id}><span className="history-dot"/><div className="history-event-title"><h3>{historyTitles[event.action]||event.action.replaceAll('-',' ')}</h3><time dateTime={event.at}>{new Date(event.at).toLocaleString(undefined,{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</time></div><p className="history-room-reference">Room {event.roomNames?.[room.id]||before?.number||room.number}{event.areaNames?.[(after||before||room).areaId]?' · '+event.areaNames[(after||before||room).areaId]:''}</p>{event.destinationRoomId&&<p className="history-move">{event.roomNames?.[event.roomId||'']||event.roomSnapshot?.number||'Previous room'} <ArrowRight size={12}/> {event.roomNames?.[event.destinationRoomId]||data.rooms.find(r=>r.id===event.destinationRoomId)?.number||'Destination room'}</p>}{allocation&&<><strong className="history-group">{allocation.group||'Your guests'}</strong>{label&&<span className="allocation-label"><Tag size={10}/>{label}</span>}<p className="history-guests">{[...allocation.names,...(allocation.unnamed?['+'+allocation.unnamed+' unnamed']:[])].join(', ')}</p><p className="history-count">{countOf(allocation)} assigned · {before?.allocation?.arrived??0} → {after?.allocation?.arrived??(event.action==='checked-out'?0:allocation.arrived)} arrived</p><details><summary>Allocation details</summary><div className="history-detail-grid"><span>Contact</span><span>{allocation.contact||'—'}</span><span>Notes</span><span>{allocation.notes||'—'}</span><span>Allocation ID</span><span>{allocation.id||'Older record'}</span><span>Created</span><span>{allocation.createdAt?new Date(allocation.createdAt).toLocaleString():'Not recorded'}</span></div></details>{event.action==='allocation-edited'&&before?.allocation&&after?.allocation&&<details><summary>Before this edit</summary><p className="history-guests">{before.allocation.group||'Your guests'} · {[...before.allocation.names,...(before.allocation.unnamed?['+'+before.allocation.unnamed]:[])].join(', ')}</p><p className="history-guests">Label: {event.labelNames?.[before.allocation.labelId||'']||'None'} · Contact: {before.allocation.contact||'—'}</p><p className="history-guests">{before.allocation.notes||'No notes'}</p></details>}</>}{recoverable&&<div className="history-recovery"><button className="button secondary" disabled={!!reason} onClick={()=>{setError('');setConfirm(event);}}><Undo2 size={13}/>{recoveryLabel(event)}</button>{reason&&<p>{reason}</p>}</div>}{event.action==='action-recovered'&&<p className="history-count">The original event remains in the record.</p>}</article>;
- })}{error&&<p className="field-error" role="alert">{error}</p>}{confirm&&<Confirm title={recoveryLabel(confirm)+'?'} text={`Restore the allocation state from before this action in room ${room.number}. Current capacity and room availability will be checked again.`} action="Restore previous state" onCancel={()=>setConfirm(null)} onConfirm={()=>{const message=onRecover(confirm.id);if(message)setError(message);setConfirm(null);}}/>}</div>;
+ })}{error&&<p className="field-error" role="alert">{error}</p>}{confirm&&<Confirm title={recoveryLabel(confirm)+'?'} text={`Restore the allocation state from before this action in room ${room.number}. Current capacity and room availability will be checked again.`} action="Restore previous state" onCancel={()=>setConfirm(null)} onConfirm={async()=>{const message=await onRecover(confirm.id);if(message)setError(message);setConfirm(null);}}/>}</div>;
 }
 
 function PdfDialog({data,context,initialScope,onClose}: {data:Dataset;context:ReportContext;initialScope:ReportScope;onClose:()=>void}) {
@@ -227,42 +237,10 @@ function PdfDialog({data,context,initialScope,onClose}: {data:Dataset;context:Re
  return <div className="inventory-overlay" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}><div className="inventory-dialog" ref={ref} role="dialog" aria-modal="true" aria-labelledby="pdf-title" tabIndex={-1}><div className="inventory-dialog-header"><div><p className="eyebrow">A LITTLE CLARITY TO SHARE</p><h2 id="pdf-title">Allocation report</h2></div><button className="icon-button" onClick={onClose} aria-label="Close PDF export"><X size={20}/></button></div><div className="inventory-form pdf-dialog-body"><p className="inventory-hint">A downloadable PDF, grouped by property and area for the selected night. Full-stay availability is checked separately in bulk allocation.</p><fieldset className="pdf-scope" disabled={busy}><legend>Choose your rooms</legend>{([{value:'all',title:'All booked rooms',description:'All booked rooms and overdue occupancy exceptions for the selected night.'},{value:'current',title:'Current results',description:'Use current property, area, linked guest, search and room filters for booked rooms.'},{value:'available',title:'Available rooms',description:'Rooms available for the selected night across all properties.'}] as const).map(scope=><label key={scope.value} className={options.scope===scope.value?'selected':''}><input type="radio" name="report-scope" value={scope.value} checked={options.scope===scope.value} onChange={()=>{setOptions({...options,scope:scope.value});setError('');setNotice('');}}/><span><strong>{scope.title}</strong><small>{scope.description}</small></span></label>)}</fieldset><section className="pdf-selection"><strong>{selection.rooms.length} {selection.rooms.length===1?'room':'rooms'} to export</strong><p>{selection.totals.assigned} assigned guests · {selection.totals.arrived} arrived</p>{selection.descriptions.map((description,i)=><p className="pdf-filter-description" key={i}>{description}</p>)}{!selection.rooms.length&&<p className="field-error">No rooms match. Choose another scope or change your filters.</p>}</section><div className="pdf-optional"><p className="eyebrow">OPTIONAL DETAILS</p><label><input type="checkbox" disabled={busy} checked={options.includeContact} onChange={e=>setOptions({...options,includeContact:e.target.checked})}/><span>Include contact numbers</span></label><label><input type="checkbox" disabled={busy} checked={options.includeNotes} onChange={e=>setOptions({...options,includeNotes:e.target.checked})}/><span>Include allocation notes</span></label></div>{error&&<p className="field-error" role="alert">{error}</p>}{notice&&<p className="data-notice" role="status">{notice}</p>}{busy&&<p className="inventory-hint" role="status">Preparing your report…</p>}</div><div className="inventory-dialog-footer"><button className="button secondary" onClick={onClose}>Close</button><button className="button primary" disabled={busy||!selection.rooms.length} onClick={()=>void download()}><FileDown size={15}/>{busy?'Generating…':'Download PDF'}</button></div></div></div>;
 }
 
-function MigrationSetup({legacy,onReady,onClose}: {legacy:LegacyDataset;onReady:(data:Dataset)=>boolean;onClose?:()=>void}) {
- const [settings,setSettings]=useState<MigrationSettings>({propertyName:'',bookedCheckIn:'',bookedCheckOut:'',checkIn:'',checkOut:'',defaultDate:''});
- const [error,setError]=useState('');
- const ref=useDialog(()=>onClose?.());
- function submit(e:React.FormEvent){e.preventDefault();try{const next=migrateLegacy(legacy,settings);validateData(next);if(!onReady(next))setError('The new data could not be saved. Existing data has been kept.');}catch(e){setError(e instanceof Error?e.message:'Migration could not be prepared.');}}
- const dateField=(key:keyof MigrationSettings,label:string)=><label key={key}>{label}<input required type="date" value={settings[key]} onChange={e=>setSettings({...settings,[key]:e.target.value})}/></label>;
- return <div className="confirm-overlay"><div className="inventory-dialog migration-dialog" ref={ref} role="dialog" aria-modal="true" aria-labelledby="migration-title" tabIndex={-1}><div className="inventory-dialog-header"><div><p className="eyebrow">ONE-TIME STAY SETUP</p><h2 id="migration-title">Keep your existing plans</h2></div>{onClose&&<button className="icon-button" aria-label="Cancel migration" onClick={onClose}><X size={20}/></button>}</div><form id="migration-form" className="allocation-form inventory-form" onSubmit={submit}><p className="inventory-hint">Your {legacy.rooms.length} rooms and {legacy.history.length} history entries will be preserved. Assign the existing inventory to a property and confirm its stay dates. These allocation dates apply to all currently assigned rooms; historical dates are left unchanged.</p><label>Property name<input required value={settings.propertyName} placeholder="Name of the existing property" onChange={e=>setSettings({...settings,propertyName:e.target.value})}/></label><div className="form-columns">{dateField('bookedCheckIn','Property booked from')}{dateField('bookedCheckOut','Property checkout date')}</div><div className="form-columns">{dateField('checkIn','Existing allocations: check-in')}{dateField('checkOut','Existing allocations: checkout')}</div>{dateField('defaultDate','Default working date')}<p className="inventory-hint">Checkout dates are exclusive. Choose a working date within the allocation stay. The original saved copy is left untouched.</p>{error&&<p className="field-error" role="alert">{error}</p>}</form><div className="inventory-dialog-footer">{onClose&&<button className="button secondary" onClick={onClose}>Cancel</button>}<button type="submit" form="migration-form" className="button primary">{onClose?'Prepare import':'Confirm & migrate'}</button></div></div></div>;
-}
-
-function DataDialog({data,onImport,onClose,onPdf}: {data:Dataset;onImport:(data:Dataset)=>boolean;onClose:()=>void;onPdf?:()=>void}) {
- const [candidate,setCandidate]=useState<Dataset|null>(null),[filename,setFilename]=useState(''),[error,setError]=useState(''),[notice,setNotice]=useState(''),[loading,setLoading]=useState(false),[confirm,setConfirm]=useState(false);
- const [legacy,setLegacy]=useState<LegacyDataset|null>(null);
- const request=useRef(0),input=useRef<HTMLInputElement>(null),ref=useDialog(onClose);
- useEffect(()=>()=>{request.current++;},[]);
- async function selectFile(file?:File){
-  if(!file)return;const current=++request.current;setLoading(true);setError('');setNotice('');setCandidate(null);setLegacy(null);setFilename(file.name);
-  try{const parsed=parseDataset(await file.text());if(current===request.current)setCandidate(parsed);}
-  catch(e){if(current===request.current){if(e instanceof MigrationRequired)setLegacy(e.legacy);else setError(e instanceof Error?e.message:'The file could not be read.');}}
-  finally{if(current===request.current)setLoading(false);if(input.current)input.current.value='';}
- }
- function download(){try{setError('');const blob=new Blob([serializeDataset(data)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=exportFilename();document.body.appendChild(a);a.click();a.remove();window.setTimeout(()=>URL.revokeObjectURL(url),1000);setNotice('JSON download requested. Save the file, then AirDrop it to your other device.');}catch(e){setError(e instanceof Error?e.message:'The data could not be exported.');}}
- const totals=candidate?summary(candidate.rooms):null;
- const preview=candidate?transferPreview(candidate):null;
- return <div className="inventory-overlay" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}><div className="inventory-dialog" ref={ref} role="dialog" aria-modal="true" aria-labelledby="data-title" tabIndex={-1}>
- <div className="inventory-dialog-header"><div><p className="eyebrow">TAKE YOUR PLANS WITH YOU</p><h2 id="data-title">Your data</h2></div><button className="icon-button" onClick={onClose} aria-label="Close data menu"><X size={20}/></button></div>
- <div className="inventory-form data-dialog-body">
- {onPdf&&<section className="data-option"><span className="data-option-icon"><FileDown size={20}/></span><h3>Allocation PDF</h3><p>Download the current room view to share with family or venue helpers.</p><button className="button secondary" onClick={onPdf}><FileDown size={15}/>Download PDF</button></section>}
- <section className="data-option"><span className="data-option-icon"><Download size={20}/></span><h3>Export JSON</h3><p>Download the complete wedding dataset, including guests, events, properties, dated allocations and history.</p><button className="button primary" onClick={download}><Download size={15}/>Export data</button></section>
- <section className="data-option"><span className="data-option-icon"><Upload size={20}/></span><h3>Import JSON</h3><p>Choose a WeddingStay version-3 or version-2 export. Older files require stay setup before you confirm replacement.</p><input ref={input} hidden type="file" accept=".json" aria-label="Select WeddingStay JSON file" onChange={e=>void selectFile(e.target.files?.[0])}/><button className="button secondary" disabled={loading} onClick={()=>input.current?.click()}><Upload size={15}/>{loading?'Reading file…':'Choose JSON file'}</button></section>
- <section className="data-option"><span className="data-option-icon"><Sparkles size={20}/></span><h3>Fictional reference data</h3><p>Explore six rooms, three guest groups and two events. Loading this replaces current data only after confirmation.</p><button className="button secondary" disabled={loading} onClick={()=>{setCandidate(seed());setFilename('Fictional reference data');setError('');setNotice('');}}>Load reference data</button></section>
- {candidate&&totals&&<section className="import-preview"><p className="eyebrow">READY TO IMPORT</p><h3>{filename}</h3>{preview&&<><p>{candidate.referenceData?'Fictional reference dataset':'Wedding dataset'} · Version {candidate.version}</p><p>{preview.active} active stays · {preview.completed} completed · {preview.cancelled} cancelled</p><p>{preview.from?'Booking coverage: '+preview.from+' → '+preview.until+' (checkout exclusive)':'No property booking dates'}</p><details className="requirement-nights"><summary>Property booking ranges</summary>{preview.properties.map((p,i)=><p key={i}>{p.name}: {p.ranges.map(r=>r.checkIn+' → '+r.checkOut).join('; ')||'No booked dates'}</p>)}</details></>}<div className="import-counts">{[[candidate.properties.length,'properties'],[candidate.areas.length,'areas'],[candidate.rooms.length,'rooms'],[candidate.allocations.length,'stays'],[candidate.guests.length,'guest groups'],[candidate.events.length,'events'],[candidate.invitations.length,'invitations'],[candidate.requirements.length,'room requirements'],[candidate.labels.length,'labels'],[candidate.history.length,'history entries']].map(([n,label])=><span key={label}><strong>{n}</strong> {label}</span>)}</div><p>Working date: {candidate.wedding.defaultDate} · {totals.assigned} known assigned guests · {totals.pending} headcounts pending</p><p className="inventory-hint">Import replaces this device’s current data; it does not merge or synchronize devices. Export current data first if you wish to retain a separate copy.</p><button className="button primary full" onClick={()=>setConfirm(true)}>Import & replace current data</button></section>}
- {error&&<p className="field-error" role="alert">{error}</p>}{notice&&<p className="data-notice" role="status">{notice}</p>}</div>
- <div className="inventory-dialog-footer"><button className="button secondary" onClick={onClose}>Done</button></div></div>
- {legacy&&<MigrationSetup legacy={legacy} onClose={()=>setLegacy(null)} onReady={next=>{setCandidate(next);setLegacy(null);return true;}}/>}
- {confirm&&candidate&&<Confirm title="Replace this device’s data?" text={`Load ${candidate.rooms.length} rooms, ${candidate.allocations.length} stays and ${candidate.guests.length} guest groups from ${filename}? Current data will be replaced completely.`} action="Replace & import" onCancel={()=>setConfirm(false)} onConfirm={()=>{if(!onImport(candidate)){setError('The import could not be saved. Your current data has been kept.');setConfirm(false);}}}/>}
- </div>;
+function DataDialog({data,onClose,onPdf}:{data:Dataset;onClose:()=>void;onPdf?:()=>void}){
+ const cloud=useCloud(),ref=useDialog(onClose);const [error,setError]=useState('');
+ function download(){try{const url=URL.createObjectURL(new Blob([serializeDataset(data)],{type:'application/json'})),link=document.createElement('a');link.href=url;link.download=exportFilename();link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(cause){setError(cloudError(cause));}}
+ return <div className="inventory-overlay" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}><div className="inventory-dialog" ref={ref} role="dialog" aria-modal="true" aria-labelledby="data-title" tabIndex={-1}><div className="inventory-dialog-header"><h2 id="data-title">Your shared wedding</h2><button className="icon-button" aria-label="Close data menu" onClick={onClose}><X size={20}/></button></div><div className="inventory-form data-dialog-body"><p>{cloud.user.email} · {cloud.role}</p><p className="inventory-hint">{cloud.online?'Connected to shared cloud data.':'Offline copy; changes may have occurred on other devices.'} Revision: {cloud.snapshot.revision}.</p>{onPdf&&<section className="data-option"><h3>Allocation PDF</h3><p>Share room details for this stay night.</p><button className="button secondary" onClick={onPdf}>Download PDF</button></section>}<section className="data-option"><h3>Export JSON</h3><p>Download the complete saved dataset. Imports and demo resets are disabled once shared data is initialized.</p><button className="button primary" onClick={download}><Download size={15}/>Export data</button></section>{cloud.role==='owner'&&<section className="data-option"><h3>Coordinator access</h3><p>Approve coordinator accounts through Firebase console membership records. Their sign-in screen displays the account ID needed for approval.</p><a className="text-link" href="https://console.firebase.google.com/project/weddingstay-d0be2/firestore/databases/-default-/data" target="_blank" rel="noreferrer">Open Firebase console<ArrowUpRight size={15}/></a></section>}{error&&<p className="field-error">{error}</p>}</div><div className="inventory-dialog-footer"><button className="button secondary" onClick={onClose}>Done</button></div></div></div>;
 }
 
 function LabelsManager({rooms,onClose}: {rooms:Room[];onClose:()=>void}) {
@@ -271,12 +249,12 @@ function LabelsManager({rooms,onClose}: {rooms:Room[];onClose:()=>void}) {
  const [deleting,setDeleting]=useState<AllocationLabel|null>(null);
  const ref=useDialog(onClose);
  const reset=()=>{setName('');setEditingId(undefined);setError('');};
- return <div className="inventory-overlay" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}><div className="inventory-dialog" ref={ref} role="dialog" aria-modal="true" aria-labelledby="labels-title" tabIndex={-1}><div className="inventory-dialog-header"><div><p className="eyebrow">KEEP YOUR PEOPLE TOGETHER</p><h2 id="labels-title">Allocation labels</h2></div><button className="icon-button" aria-label="Close labels" onClick={onClose}><X size={20}/></button></div><div className="inventory-form labels-body"><p className="inventory-hint">One label can connect several room allocations. Family and guest details stay separate.</p><form className="allocation-form label-manager-form" onSubmit={e=>{e.preventDefault();const result=saveLabel(name,editingId);if(result.error)setError(result.error);else reset();}}><label>{editingId?'Rename label':'Create a label'}<input required value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Groom’s relatives"/></label><div className="label-manager-actions">{editingId&&<button type="button" className="button secondary" onClick={reset}>Cancel rename</button>}<button className="button primary" type="submit">{editingId?'Save name':'Create label'}</button></div></form>{error&&<p className="field-error" role="alert">{error}</p>}<div className="label-list">{labels.length?labels.map(label=><div className="label-list-row" key={label.id}><div><span className="allocation-label"><Tag size={12}/>{label.name}</span><small>{rooms.filter(r=>r.allocation?.labelId===label.id).length} allocations</small></div><button className="icon-button" aria-label={'Rename '+label.name} onClick={()=>{setEditingId(label.id);setName(label.name);setError('');}}><Pencil size={15}/></button><button className="icon-button danger" aria-label={'Delete '+label.name} onClick={()=>setDeleting(label)}><Trash2 size={15}/></button></div>):<p className="inventory-hint">No labels yet. Create your first one above or while allocating a room.</p>}</div></div><div className="inventory-dialog-footer"><button className="button secondary" onClick={onClose}>Done</button></div></div>
- {deleting&&<Confirm title={'Remove “'+deleting.name+'”?'} text={`This removes the label from ${rooms.filter(r=>r.allocation?.labelId===deleting.id).length} allocations. All rooms, guests and allocations will be kept.`} action="Remove label" onCancel={()=>setDeleting(null)} onConfirm={()=>{const message=deleteLabel(deleting.id);if(message)setError(message);else if(editingId===deleting.id)reset();setDeleting(null);}}/>}
+ return <div className="inventory-overlay" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}><div className="inventory-dialog" ref={ref} role="dialog" aria-modal="true" aria-labelledby="labels-title" tabIndex={-1}><div className="inventory-dialog-header"><div><p className="eyebrow">KEEP YOUR PEOPLE TOGETHER</p><h2 id="labels-title">Allocation labels</h2></div><button className="icon-button" aria-label="Close labels" onClick={onClose}><X size={20}/></button></div><div className="inventory-form labels-body"><p className="inventory-hint">One label can connect several room allocations. Family and guest details stay separate.</p><form className="allocation-form label-manager-form" onSubmit={async e=>{e.preventDefault();const result=await saveLabel(name,editingId);if(result.error)setError(result.error);else reset();}}><label>{editingId?'Rename label':'Create a label'}<input required value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Groom’s relatives"/></label><div className="label-manager-actions">{editingId&&<button type="button" className="button secondary" onClick={reset}>Cancel rename</button>}<button className="button primary" type="submit">{editingId?'Save name':'Create label'}</button></div></form>{error&&<p className="field-error" role="alert">{error}</p>}<div className="label-list">{labels.length?labels.map(label=><div className="label-list-row" key={label.id}><div><span className="allocation-label"><Tag size={12}/>{label.name}</span><small>{rooms.filter(r=>r.allocation?.labelId===label.id).length} allocations</small></div><button className="icon-button" aria-label={'Rename '+label.name} onClick={()=>{setEditingId(label.id);setName(label.name);setError('');}}><Pencil size={15}/></button><button className="icon-button danger" aria-label={'Delete '+label.name} onClick={()=>setDeleting(label)}><Trash2 size={15}/></button></div>):<p className="inventory-hint">No labels yet. Create your first one above or while allocating a room.</p>}</div></div><div className="inventory-dialog-footer"><button className="button secondary" onClick={onClose}>Done</button></div></div>
+ {deleting&&<Confirm title={'Remove “'+deleting.name+'”?'} text={`This removes the label from ${rooms.filter(r=>r.allocation?.labelId===deleting.id).length} allocations. All rooms, guests and allocations will be kept.`} action="Remove label" onCancel={()=>setDeleting(null)} onConfirm={async()=>{const message=await deleteLabel(deleting.id);if(message)setError(message);else if(editingId===deleting.id)reset();setDeleting(null);}}/>}
  </div>;
 }
 
-function InventoryEditor({target,rooms,properties,onSave,onDelete,onClose}: {target:InventoryTarget;rooms:Room[];properties:Dataset['properties'];onSave:(value:Area|Room)=>string|null;onDelete:(value:Area|Room)=>string|null;onClose:()=>void}) {
+function InventoryEditor({target,rooms,properties,onSave,onDelete,onClose}: {target:InventoryTarget;rooms:Room[];properties:Dataset['properties'];onSave:(value:Area|Room)=>Promise<string|null>;onDelete:(value:Area|Room)=>Promise<string|null>;onClose:()=>void}) {
  const areas=useContext(AreasContext);
  const isRoom=target.kind==='room';
  const existing=target.kind==='room'?target.room:target.area;
@@ -290,18 +268,18 @@ function InventoryEditor({target,rooms,properties,onSave,onDelete,onClose}: {tar
  const room='number' in draft?draft:null;
  const area='name' in draft?draft:null;
  const blocked=room?!!room.allocation:rooms.some(r=>r.areaId===draft.id);
- function submit(e:React.FormEvent){e.preventDefault();const cleaned=room?{...room,number:room.number.trim(),notes:room.notes?.trim()}:area?{...area,name:area.name.trim(),description:area.description.trim()}:draft;const message=onSave(cleaned);if(message)setError(message);else onClose();}
+ async function submit(e:React.FormEvent){e.preventDefault();const cleaned=room?{...room,number:room.number.trim(),notes:room.notes?.trim()}:area?{...area,name:area.name.trim(),description:area.description.trim()}:draft;const message=await onSave(cleaned);if(message)setError(message);else onClose();}
  return <div className="inventory-overlay" onMouseDown={e=>{if(e.target===e.currentTarget)close();}}><div className="inventory-dialog" ref={ref} role="dialog" aria-modal="true" aria-labelledby="inventory-title" tabIndex={-1}><div className="inventory-dialog-header"><div><p className="eyebrow">YOUR WEDDING SPACE</p><h2 id="inventory-title">{existing?'Edit':'Add'} {isRoom?'room':'area'}</h2></div><button className="icon-button" onClick={close} aria-label="Close inventory editor"><X size={20}/></button></div><form className="allocation-form inventory-form" id="inventory-form" onSubmit={submit}>
  {area&&<><label>Property<select required value={area.propertyId} onChange={e=>setDraft({...area,propertyId:e.target.value})}>{properties.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label><label>Area name<input autoFocus required value={area.name} placeholder="e.g. Garden Wing" onChange={e=>setDraft({...area,name:e.target.value})}/></label><label>Description <span>optional</span><textarea rows={2} value={area.description} placeholder="A little about this part of the venue" onChange={e=>setDraft({...area,description:e.target.value})}/></label></>}
  {room&&<><label>Room number<input autoFocus required value={room.number} placeholder="e.g. 141 or A-01" onChange={e=>setDraft({...room,number:e.target.value})}/></label><label>Area<select value={room.areaId} required onChange={e=>setDraft({...room,areaId:e.target.value})}><option value="" disabled>Choose an area</option>{areas.map(a=><option value={a.id} key={a.id}>{a.name}</option>)}</select></label><div className="form-columns"><label>Room type<select value={room.type} onChange={e=>setDraft({...room,type:e.target.value as Room['type'],special:e.target.value==='Normal'?undefined:room.special})}><option>Normal</option><option>Suite</option></select></label><label>Maximum occupancy<input required type="number" min={1} step={1} value={room.capacity||''} onChange={e=>setDraft({...room,capacity:Number(e.target.value)})}/></label></div>{room.allocation&&<p className="inventory-hint">{countOf(room.allocation)} guests are assigned. Capacity must accommodate everyone.</p>}{room.type==='Suite'&&<label>Special designation<select value={room.special||''} onChange={e=>setDraft({...room,special:e.target.value||undefined})}><option value="">None</option><option>Bride Suite</option><option>Groom Suite</option></select></label>}<label>Room notes <span>optional</span><textarea rows={3} value={room.notes||''} placeholder="Floor, accessibility or other useful details" onChange={e=>setDraft({...room,notes:e.target.value})}/></label></>}
  {error&&<p role="alert" className="field-error">{error}</p>}
  {existing&&<div className="inventory-delete"><button type="button" disabled={blocked} onClick={()=>setConfirmation('delete')} className="quiet-button danger"><Trash2 size={14}/>Delete {isRoom?'room':'area'}</button>{blocked&&<p>{isRoom?'End the active allocation before deleting this room.':'Move or remove all rooms before deleting this area.'}</p>}</div>}
  </form><div className="inventory-dialog-footer"><button className="button secondary" onClick={close}>Cancel</button><button className="button primary" type="submit" form="inventory-form"><Check size={16}/>Save {isRoom?'room':'area'}</button></div></div>
- {confirmation&&<Confirm title={confirmation==='discard'?'Discard unsaved changes?':`Delete ${room?'room '+room.number:area?.name}?`} text={confirmation==='discard'?'These details have not been saved.':'This removes it from your current inventory. This action cannot be undone.'} action={confirmation==='discard'?'Discard changes':'Delete'} onCancel={()=>setConfirmation(null)} onConfirm={()=>{if(confirmation==='discard')onClose();else{const message=onDelete(draft);if(message){setError(message);setConfirmation(null);}else onClose();}}}/>}
+ {confirmation&&<Confirm title={confirmation==='discard'?'Discard unsaved changes?':`Delete ${room?'room '+room.number:area?.name}?`} text={confirmation==='discard'?'These details have not been saved.':'This removes it from your current inventory. This action cannot be undone.'} action={confirmation==='discard'?'Discard changes':'Delete'} onCancel={()=>setConfirmation(null)} onConfirm={async()=>{if(confirmation==='discard')onClose();else{const message=await onDelete(draft);if(message){setError(message);setConfirmation(null);}else onClose();}}}/>}
  </div>;
 }
 
 
 
-const router=(import.meta.env.MODE==='pages'?createHashRouter:createBrowserRouter)([{path:'*',element:<App/>}]);
+const router=(import.meta.env.MODE==='pages'?createHashRouter:createBrowserRouter)([{path:'*',element:<CloudAccess><App/></CloudAccess>}]);
 createRoot(document.getElementById('root')!).render(<React.StrictMode><RouterProvider router={router}/></React.StrictMode>);

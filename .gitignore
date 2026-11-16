@@ -1,0 +1,16 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+.certs/
+*.pem
+*.key
+*.p12
+*.cer
+docs/
+guest-list/
+*.md
+scripts/prepare-guest-data.mjs
+.env
+.env.*
+!.env.example

@@ -1,0 +1,20 @@
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import { VitePWA } from 'vite-plugin-pwa';
+export default defineConfig(({mode})=>{
+ const base=mode==='pages'?'/WeddingStay/':'/';
+ return {base,plugins: [react(), {
+ name:'weddingstay-offline-assets',
+ generateBundle(_options,bundle){
+  const assets=[...Object.keys(bundle).filter(name=>/\.(js|css|html)$/.test(name)),'index.html','manifest.webmanifest','icon.svg','icon-192.png','icon-512.png','icon-maskable.png','apple-touch-icon.png'];
+  this.emitFile({type:'asset',fileName:'offline-assets.json',source:JSON.stringify([...new Set(assets)].map(name=>base+name))});
+ }
+ }, VitePWA({
+ registerType:'prompt',
+ includeAssets:['icon.svg','apple-touch-icon.png'],
+ scope:base,
+ manifest:{id:base,name:'WeddingStay',short_name:'WeddingStay',description:'Room for celebration. Personal wedding accommodation.',start_url:base,scope:base,display:'standalone',background_color:'#f8f7f3',theme_color:'#743346',icons:[{src:base+'icon-192.png',sizes:'192x192',type:'image/png',purpose:'any'},{src:base+'icon-512.png',sizes:'512x512',type:'image/png',purpose:'any'},{src:base+'icon-maskable.png',sizes:'512x512',type:'image/png',purpose:'maskable'}]},
+ workbox:{globPatterns:['**/*.{js,css,html,png,svg,ico,webmanifest,json}'],navigateFallback:base+'index.html',cleanupOutdatedCaches:true,skipWaiting:false,clientsClaim:true},
+ devOptions:{enabled:false}
+ })] };
+});

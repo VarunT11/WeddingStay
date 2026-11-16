@@ -15,7 +15,7 @@ export function cloudError(error:unknown){
  const code=(error as {code?:string})?.code;
  if(code==='auth/popup-closed-by-user')return 'Sign-in was closed. You can try again.';
  if(code==='auth/popup-blocked')return 'Allow the sign-in popup for WeddingStay, then try again.';
- if(code==='permission-denied')return 'Your account no longer has access. Ask the wedding owner to review your membership.';
+ if(code==='permission-denied')return 'The cloud rejected this request. Your sign-in may still be valid. Reload the latest app and retry; if it continues, the cloud rules need to be checked. Your changes have not been saved.';
  if(code==='unavailable'||code==='auth/network-request-failed')return 'The cloud cannot be reached. Check your internet connection and try again.';
  return error instanceof Error?error.message:'The cloud request could not be completed.';
 }

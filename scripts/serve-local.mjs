@@ -22,7 +22,7 @@ const server=https.createServer({key,cert},async(req,res)=>{
   try{if(!(await stat(target)).isFile())throw new Error('Not a file');}
   catch{
    const acceptsHtml=(req.headers.accept||'').includes('text/html');
-   const appRoute=['/','/browse','/areas','/guests','/events','/stays'].includes(raw)||/^\/(areas|stays)\/[^/.]+$/.test(raw)||/^\/stays\/night\/\d{4}-\d{2}-\d{2}(?:\/properties\/[^/.]+(?:\/areas\/[^/.]+)?)?$/.test(raw);
+   const appRoute=['/','/browse','/areas','/guests','/events','/stays'].includes(raw)||/^\/(areas|stays)\/[^/.]+$/.test(raw)||/^\/stays\/night\/\d{4}-\d{2}-\d{2}(?:\/rooms|\/properties\/[^/.]+(?:\/areas\/[^/.]+)?)?$/.test(raw);
    if(!acceptsHtml&&!appRoute){res.writeHead(404);res.end('Not found');return;}
    if(path.extname(raw)){res.writeHead(404);res.end('Not found');return;}
    target=path.join(directory,'index.html');

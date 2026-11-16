@@ -21,6 +21,7 @@ import {CloudAccess,useCloud} from './CloudAccess';
 import {commitWedding,type CloudSnapshot} from './cloudStore';
 import {cloudError} from './firebase';
 import {normalizeData} from './data';
+import {CloudReplacement} from './CloudReplacement';
 
 const AreasContext=createContext<Area[]>([]);
 const PropertiesContext=createContext<Dataset['properties']>([]);
@@ -72,7 +73,7 @@ function App() {
     if(!cloud.online){setError('You are offline. Reconnect before saving. Your draft is kept.');return false;}
     savingRef.current=true;setSaving(true);setError('');
     try {
-      const before:CloudSnapshot={data:savedData,revision:revision.current};
+      const before:CloudSnapshot={data:savedData,revision:revision.current,datasetVersion:cloud.snapshot.datasetVersion};
       const confirmed=await commitWedding(before,normalizeData({...next,updatedAt:new Date().toISOString()}));
       revision.current=confirmed.revision;setData(confirmed.data);setToast(message);return true;
     } catch(cause){setError(cloudError(cause));return false;}
@@ -238,9 +239,9 @@ function PdfDialog({data,context,initialScope,onClose}: {data:Dataset;context:Re
 }
 
 function DataDialog({data,onClose,onPdf}:{data:Dataset;onClose:()=>void;onPdf?:()=>void}){
- const cloud=useCloud(),ref=useDialog(onClose);const [error,setError]=useState('');
+ const cloud=useCloud();const [replacing,setReplacing]=useState(false),[error,setError]=useState('');const close=()=>{if(!replacing)onClose();};const ref=useDialog(close);
  function download(){try{const url=URL.createObjectURL(new Blob([serializeDataset(data)],{type:'application/json'})),link=document.createElement('a');link.href=url;link.download=exportFilename();link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(cause){setError(cloudError(cause));}}
- return <div className="inventory-overlay" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}><div className="inventory-dialog" ref={ref} role="dialog" aria-modal="true" aria-labelledby="data-title" tabIndex={-1}><div className="inventory-dialog-header"><h2 id="data-title">Your shared wedding</h2><button className="icon-button" aria-label="Close data menu" onClick={onClose}><X size={20}/></button></div><div className="inventory-form data-dialog-body"><p>{cloud.user.email} · {cloud.role}</p><p className="inventory-hint">{cloud.online?'Connected to shared cloud data.':'Offline copy; changes may have occurred on other devices.'} Revision: {cloud.snapshot.revision}.</p>{onPdf&&<section className="data-option"><h3>Allocation PDF</h3><p>Share room details for this stay night.</p><button className="button secondary" onClick={onPdf}>Download PDF</button></section>}<section className="data-option"><h3>Export JSON</h3><p>Download the complete saved dataset. Imports and demo resets are disabled once shared data is initialized.</p><button className="button primary" onClick={download}><Download size={15}/>Export data</button></section>{cloud.role==='owner'&&<section className="data-option"><h3>Coordinator access</h3><p>Approve coordinator accounts through Firebase console membership records. Their sign-in screen displays the account ID needed for approval.</p><a className="text-link" href="https://console.firebase.google.com/project/weddingstay-d0be2/firestore/databases/-default-/data" target="_blank" rel="noreferrer">Open Firebase console<ArrowUpRight size={15}/></a></section>}{error&&<p className="field-error">{error}</p>}</div><div className="inventory-dialog-footer"><button className="button secondary" onClick={onClose}>Done</button></div></div></div>;
+ return <div className="inventory-overlay" onMouseDown={e=>{if(e.target===e.currentTarget)close();}}><div className="inventory-dialog" ref={ref} role="dialog" aria-modal="true" aria-labelledby="data-title" tabIndex={-1}><div className="inventory-dialog-header"><h2 id="data-title">Your shared wedding</h2><button className="icon-button" aria-label="Close data menu" onClick={close} disabled={replacing}><X size={20}/></button></div><div className="inventory-form data-dialog-body"><p>{cloud.user.email} · {cloud.role}</p><p className="inventory-hint">{cloud.online?'Connected to shared cloud data.':'Offline copy; changes may have occurred on other devices.'} Revision: {cloud.snapshot.revision}.</p>{onPdf&&<section className="data-option"><h3>Allocation PDF</h3><p>Share room details for this stay night.</p><button className="button secondary" onClick={onPdf}>Download PDF</button></section>}<section className="data-option"><h3>Export JSON</h3><p>Download the complete saved dataset. Owners can replace cloud data below after reviewing a full comparison.</p><button className="button primary" onClick={download}><Download size={15}/>Export data</button></section>{cloud.role==='owner'&&<CloudReplacement onBusyChange={setReplacing}/>}{cloud.role==='owner'&&<section className="data-option"><h3>Coordinator access</h3><p>Approve coordinator accounts through Firebase console membership records. Their sign-in screen displays the account ID needed for approval.</p><a className="text-link" href="https://console.firebase.google.com/project/weddingstay-d0be2/firestore/databases/-default-/data" target="_blank" rel="noreferrer">Open Firebase console<ArrowUpRight size={15}/></a></section>}{error&&<p className="field-error">{error}</p>}</div><div className="inventory-dialog-footer"><button className="button secondary" onClick={close} disabled={replacing}>Done</button></div></div></div>;
 }
 
 function LabelsManager({rooms,onClose}: {rooms:Room[];onClose:()=>void}) {

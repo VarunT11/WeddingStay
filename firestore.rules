@@ -8,6 +8,23 @@ service cloud.firestore {
     function head(wedding) { return get(/databases/$(database)/documents/weddings/$(wedding)).data; }
     function afterHead(wedding) { return getAfter(/databases/$(database)/documents/weddings/$(wedding)).data; }
     function recordCollection(kind) { return kind in ['guests','events','invitations','properties','areas','rooms','allocations','requirements','labels','history']; }
+    function versionOf(value) { return value.get('activeVersion', ''); }
+    function validRecord(id) {
+      return request.resource.data.keys().hasOnly(['data','deleted','revision','updatedBy','updatedAt'])
+        && request.resource.data.deleted is bool && request.resource.data.revision is int
+        && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time
+        && ((request.resource.data.deleted == true && request.resource.data.data == null)
+          || (request.resource.data.data is map && request.resource.data.data.id == id));
+    }
+    function liveWrite(wedding, kind, version) {
+      return head(wedding).state == 'ready' && versionOf(head(wedding)) == version
+        && versionOf(afterHead(wedding)) == version
+        && afterHead(wedding).revision == head(wedding).revision + 1
+        && afterHead(wedding).updatedBy == request.auth.uid
+        && request.resource.data.revision == afterHead(wedding).revision
+        && afterHead(wedding).collectionRevisions[kind] == afterHead(wedding).revision;
+    }
+    function staged(wedding, version) { return get(/databases/$(database)/documents/weddings/$(wedding)/versions/$(version)).data; }
     match /weddings/{wedding} {
       allow get: if active(wedding);
       allow list, delete: if false;
@@ -16,6 +33,15 @@ service cloud.firestore {
         (resource.data.state == 'ready' && request.resource.data.state == 'ready'
           && request.resource.data.revision == resource.data.revision + 1
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['revision','collectionRevisions','updatedAt','updatedBy']))
+        || (owner(wedding) && resource.data.state == 'ready' && request.resource.data.state == 'ready'
+          && request.resource.data.revision == resource.data.revision + 1
+          && versionOf(request.resource.data) != versionOf(resource.data)
+          && request.resource.data.previousVersion == (versionOf(resource.data) == '' ? 'legacy' : versionOf(resource.data))
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['activeVersion','previousVersion','revision','collectionRevisions','wedding','version','referenceData','createdAt','updatedAt','updatedBy'])
+          && staged(wedding, request.resource.data.activeVersion).state == 'ready'
+          && staged(wedding, request.resource.data.activeVersion).createdBy == request.auth.uid
+          && staged(wedding, request.resource.data.activeVersion).baseRevision == resource.data.revision
+          && staged(wedding, request.resource.data.activeVersion).baseVersion == versionOf(resource.data))
         || (owner(wedding) && resource.data.state != 'ready' && request.resource.data.state in ['initializing','ready']
           && (resource.data.state != 'initializing' || request.resource.data.importHash == resource.data.importHash))
       );
@@ -26,20 +52,37 @@ service cloud.firestore {
         allow write: if false;
       }
       match /{kind}/{id} {
-        allow read: if recordCollection(kind) && active(wedding) && (owner(wedding) || head(wedding).state == 'ready');
+        allow read: if recordCollection(kind) && active(wedding) && (owner(wedding) || (head(wedding).state == 'ready' && versionOf(head(wedding)) == ''));
         allow create, update: if recordCollection(kind) && active(wedding)
-          && request.resource.data.keys().hasOnly(['data','deleted','revision','updatedBy','updatedAt'])
-          && request.resource.data.deleted is bool && request.resource.data.revision is int
-          && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time
-          && ((request.resource.data.deleted == true && request.resource.data.data == null)
-            || (request.resource.data.data is map && request.resource.data.data.id == id))
+          && validRecord(id)
           && ((head(wedding).state == 'initializing' && owner(wedding) && request.resource.data.revision == 1)
-            || (head(wedding).state == 'ready' && afterHead(wedding).revision == head(wedding).revision + 1
-              && afterHead(wedding).updatedBy == request.auth.uid
-              && request.resource.data.revision == afterHead(wedding).revision
-              && afterHead(wedding).collectionRevisions[kind] == afterHead(wedding).revision))
+            || liveWrite(wedding, kind, ''))
           && (kind != 'history' || !exists(/databases/$(database)/documents/weddings/$(wedding)/history/$(id)) || head(wedding).state == 'initializing');
         allow delete: if false;
+      }
+      match /versions/{version} {
+        allow read: if active(wedding) && (owner(wedding) || versionOf(head(wedding)) == version);
+        allow create: if owner(wedding) && head(wedding).state == 'ready'
+          && request.resource.data.keys().hasOnly(['state','baseRevision','baseVersion','createdBy','createdAt'])
+          && request.resource.data.state == 'uploading' && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.baseRevision == head(wedding).revision
+          && request.resource.data.baseVersion == versionOf(head(wedding));
+        allow update: if owner(wedding) && resource.data.createdBy == request.auth.uid
+          && resource.data.state == 'uploading' && request.resource.data.state == 'ready'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['state']);
+        allow delete: if false;
+        match /{kind}/{id} {
+          allow read: if recordCollection(kind) && active(wedding) && (owner(wedding) || versionOf(head(wedding)) == version);
+          allow create, update: if recordCollection(kind) && active(wedding) && validRecord(id)
+            && ((owner(wedding) && staged(wedding, version).state == 'uploading'
+                && staged(wedding, version).createdBy == request.auth.uid
+                && request.resource.data.deleted == false
+                && request.resource.data.revision == staged(wedding, version).baseRevision + 1)
+              || (liveWrite(wedding, kind, version)
+                && (kind != 'history' || !exists(/databases/$(database)/documents/weddings/$(wedding)/versions/$(version)/history/$(id)))));
+          allow delete: if false;
+        }
       }
     }
   }

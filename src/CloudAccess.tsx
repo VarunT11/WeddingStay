@@ -1,4 +1,5 @@
-import {createContext,useContext,useEffect,useRef,useState,type ReactNode} from 'react';
+import {Fragment,createContext,useContext,useEffect,useRef,useState,type ReactNode} from 'react';
+import {useLocation,useNavigate} from 'react-router-dom';
 import {onAuthStateChanged,type User} from 'firebase/auth';
 import {onSnapshot} from 'firebase/firestore';
 import {Cloud,Flower2,LogOut,Upload} from 'lucide-react';
@@ -38,12 +39,17 @@ export function CloudAccess({children}:{children:ReactNode}){
  if(!firebaseConfigured)return <AccessPage title="WeddingStay is being connected"><p>The Firebase configuration is missing. The owner needs to complete deployment setup.</p></AccessPage>;
  if(!authReady)return <AccessPage title="Opening your wedding…"/>;
  if(!user)return <AccessPage title="Your celebration, together."><p>Sign in with an approved Google account to coordinate this wedding.</p><button className="button primary full" disabled={signingIn} onClick={()=>void login()}>{signingIn?'Opening Google…':'Sign in with Google'}</button>{error&&<p className="field-error" role="alert">{error}</p>}</AccessPage>;
- if(role&&snapshot)return <CloudContext.Provider value={{user,role,snapshot,online:online&&status==='online',signOut:logout}}>{error&&<div className="cloud-access-error" role="alert">{error}</div>}{children}</CloudContext.Provider>;
+ if(role&&snapshot)return <CloudContext.Provider value={{user,role,snapshot,online:online&&status==='online',signOut:logout}}>{error&&<div className="cloud-access-error" role="alert">{error}</div>}<CloudWorkspace snapshot={snapshot}>{children}</CloudWorkspace></CloudContext.Provider>;
  return <AccessPage title={status==='denied'?'Access not granted':role?'Prepare your shared wedding':'Checking your access…'}>
  <p>{user.email}</p>
  {status==='denied'?<><p>Ask the wedding owner to approve this account. Signing in does not automatically grant access.</p><p className="inventory-hint">Your account ID</p><code className="account-id">{user.uid}</code></>:role==='owner'&&(status==='empty'||status==='initializing')?<InitializeCloud status={status}/>:role?<p>The owner is preparing the shared data. No guest records are available yet.</p>:<p>Connect to the internet to verify access. Your previous local data remains on this device.</p>}
  {error&&<p className="field-error" role="alert">{error}</p>}<div className="access-actions"><button className="button secondary" onClick={()=>{setError('');setRetry(n=>n+1);}}>Check again</button><button className="quiet-button" onClick={()=>void logout()}><LogOut size={14}/>Sign out</button></div>
  </AccessPage>;
+}
+function CloudWorkspace({snapshot,children}:{snapshot:CloudSnapshot;children:ReactNode}){
+ const previous=useRef(snapshot.datasetVersion),[replaced,setReplaced]=useState(false),location=useLocation(),navigate=useNavigate();
+ useEffect(()=>{if(previous.current===snapshot.datasetVersion)return;previous.current=snapshot.datasetVersion;setReplaced(true);const params=new URLSearchParams(location.search);for(const key of ['room','guest','event','bulk'])params.delete(key);void navigate({pathname:location.pathname,search:params.toString()},{replace:true});},[snapshot.datasetVersion,location.pathname,location.search,navigate]);
+ return <>{replaced&&<div className="cloud-replacement-notice" role="alert"><span>The owner replaced the shared dataset. Open forms were closed; please reopen records before editing.</span><button className="quiet-button" onClick={()=>setReplaced(false)}>Dismiss</button></div>}<Fragment key={snapshot.datasetVersion||'legacy'}>{children}</Fragment></>;
 }
 function AccessPage({title,children}:{title:string;children?:ReactNode}){return <main className="access-page"><section className="access-card"><div className="access-brand"><Flower2 size={30}/><span>WeddingStay</span></div><Cloud className="access-cloud" size={28}/><h1>{title}</h1>{children}</section></main>;}
 function InitializeCloud({status}:{status:string}){

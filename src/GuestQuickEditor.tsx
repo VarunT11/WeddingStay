@@ -12,6 +12,13 @@ export function restoreGuestControl(attribute:string,id:string){
  const target=visibleGuestControl(attribute,id)||document.querySelector<HTMLElement>('.guest-list-toolbar input,.event-guest-toolbar input');
  target?.focus();
 }
+export function restoreGuestRow(id:string,following:string[]=[]){
+ requestAnimationFrame(()=>{
+  const controls=Array.from(document.querySelectorAll<HTMLElement>('[data-guest-open-id]')).filter(el=>el.getClientRects().length>0);
+  const target=[id,...following].map(key=>controls.find(el=>el.dataset.guestOpenId===key)).find(Boolean)||document.querySelector<HTMLElement>('.guest-list-toolbar input,.event-guest-toolbar input');
+  target?.focus({preventScroll:true});
+ });
+}
 export function GuestQuickEditor({titleId,anchorAttribute,anchorId,modal=false,onClose,children}:{titleId:string;anchorAttribute:string;anchorId:string;modal?:boolean;onClose:()=>void;children:ReactNode}){
  const [mobile,setMobile]=useState(()=>window.matchMedia('(max-width: 767px)').matches);
  const [position,setPosition]=useState<{left:number;top:number;floating:boolean}>({left:0,top:0,floating:false});

@@ -74,6 +74,14 @@ export function saveInvitation(data:Dataset,invitation:Invitation):Dataset {
   const next=stamped({...previous,response:invitation.response,confirmedHeadcount:invitation.response==='Confirmed'?invitation.confirmedHeadcount:null},previous);
   return normalizeData({...data,invitations:data.invitations.map(i=>i.id===next.id?next:i)});
 }
+export function updateGuestEvents(data:Dataset,guestId:string,eventIds:string[]):Dataset {
+  if(!data.guests.some(g=>g.id===guestId))throw new Error('This guest group no longer exists.');
+  const selected=new Set(eventIds);
+  if([...selected].some(id=>!data.events.some(event=>event.id===id)))throw new Error('An event no longer exists. Reopen Edit events to refresh the list.');
+  const invitations=data.invitations.filter(i=>i.guestGroupId!==guestId||selected.has(i.eventId));
+  for(const eventId of selected)if(!invitations.some(i=>i.guestGroupId===guestId&&i.eventId===eventId))invitations.push(stamped<Invitation>({id:crypto.randomUUID(),eventId,guestGroupId:guestId,response:'Pending',confirmedHeadcount:null}));
+  return normalizeData({...data,invitations});
+}
 export function deleteInvitation(data:Dataset,id:string):Dataset {
   return normalizeData({...data,invitations:data.invitations.filter(i=>i.id!==id)});
 }

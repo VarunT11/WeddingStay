@@ -1,13 +1,13 @@
 import {useEffect,useLayoutEffect,useRef,useState,type RefObject} from 'react';
-import {LayoutGrid,Table2} from 'lucide-react';
+import {List,Table2} from 'lucide-react';
 import './guest-mobile-view.css';
 
-export type GuestMobileView='matrix'|'cards';
+export type GuestMobileView='matrix'|'list';
 type ListContext='master'|'event';
 const storageKey=(context:ListContext)=>'weddingstay.guestListMobileView.'+context;
 function readView(context:ListContext):GuestMobileView{
- try{const value=localStorage.getItem(storageKey(context));if(value==='matrix'||value==='cards')return value;}catch{/* Storage is optional. */}
- return context==='master'?'matrix':'cards';
+ try{const value=localStorage.getItem(storageKey(context));if(value==='matrix'||value==='list')return value;if(value==='cards')return 'list';}catch{/* Storage is optional. */}
+ return 'list';
 }
 export function useGuestMobileView(context:ListContext){
  const [views,setViews]=useState(()=>({master:readView('master'),event:readView('event')}));
@@ -20,22 +20,22 @@ export function useGuestListMobile(){
  return mobile;
 }
 export function MobileGuestViewSwitch({value,onChange}:{value:GuestMobileView;onChange:(value:GuestMobileView)=>void}){
- return <div className="guest-mobile-view-switch" role="group" aria-label="Mobile guest list view"><button type="button" aria-pressed={value==='matrix'} onClick={()=>onChange('matrix')}><Table2 size={16} aria-hidden="true"/>Matrix</button><button type="button" aria-pressed={value==='cards'} onClick={()=>onChange('cards')}><LayoutGrid size={16} aria-hidden="true"/>Cards</button></div>;
+ return <div className="guest-mobile-view-switch" role="group" aria-label="Mobile guest list view"><button type="button" aria-pressed={value==='matrix'} onClick={()=>onChange('matrix')}><Table2 size={16} aria-hidden="true"/>Matrix</button><button type="button" aria-pressed={value==='list'} onClick={()=>onChange('list')}><List size={16} aria-hidden="true"/>List</button></div>;
 }
 
 export function useGuestListScroll(matrix:RefObject<HTMLDivElement|null>,cards:RefObject<HTMLDivElement|null>,mobile:boolean,view:GuestMobileView,resetKey:string){
  const mode=mobile?view:'matrix';
- const positions=useRef({matrix:{x:0,y:0,pageY:window.scrollY},cards:{pageY:window.scrollY}});
+ const positions=useRef({matrix:{x:0,y:0,pageY:window.scrollY},list:{pageY:window.scrollY}});
  const previous=useRef({mode,resetKey}),restoring=useRef(false);
  useLayoutEffect(()=>{
   restoring.current=true;
   if(previous.current.resetKey!==resetKey){
-   const element=mode==='cards'?cards.current:matrix.current;
+   const element=mode==='list'?cards.current:matrix.current;
    const toolbar=document.querySelector<HTMLElement>('.guest-list-toolbar,.event-guest-toolbar');
    const listTop=Math.max(0,(element?.getBoundingClientRect().top||0)+window.scrollY-(toolbar?.offsetHeight||0)-12);
-   positions.current={matrix:{x:0,y:0,pageY:window.scrollY},cards:{pageY:listTop}};
+   positions.current={matrix:{x:0,y:0,pageY:window.scrollY},list:{pageY:listTop}};
    matrix.current?.scrollTo({left:0,top:0});
-   if(mode==='cards')window.scrollTo({top:listTop});
+   if(mode==='list')window.scrollTo({top:listTop});
   }else if(previous.current.mode!==mode){
    if(mode==='matrix')matrix.current?.scrollTo({left:positions.current.matrix.x,top:positions.current.matrix.y});
    window.scrollTo({top:positions.current[mode].pageY});

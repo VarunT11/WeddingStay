@@ -1,7 +1,7 @@
 import {useLayoutEffect,useRef,useState} from 'react';
 import {useLocation,useSearchParams} from 'react-router-dom';
 import {ArrowRight,BedDouble,CalendarDays,ChevronDown,FileDown,LayoutGrid,List,MapPin,Pencil,Plus,Search,SlidersHorizontal,Sparkles,Tag,TriangleAlert,Users,X} from 'lucide-react';
-import {countOf,filterRooms,statusOf,type Dataset,type Room} from './data';
+import {roomAssignments,roomOccupancy,countOf,filterRooms,statusOf,type Dataset,type Room} from './data';
 import {GuestPicker,stayDate,stayStatus} from './StayUI';
 import {Link,useNavigate} from './navigation';
 import {areaPath,managePropertyPath,nightPath,roomsPath} from './stayRoutes';
@@ -64,9 +64,9 @@ export function RoomBrowser({data,rooms,areaId,onAddRoom,onEditArea,onManageLabe
  }
  function assign(){const next=new URLSearchParams(params);next.delete('room');next.delete('allocation');next.set('bulk','1');if(fixedArea){next.set('property',fixedArea.propertyId);next.set('area',fixedArea.id);}navigate({pathname:location.pathname,search:next.toString()},{state:{bulkOverlay:true},preventScrollReset:true});}
  function details(room:Room){
-  const allocation=room.allocation,unbooked=room.booked===false&&!room.overdue,kind=room.overdue?'overdue':unbooked?'unbooked':statusOf(room)==='Available'?'available':statusOf(room)==='Allotted'?'reserved':'occupied';
-  const family=allocation?(allocation.group.trim()||data.guests.find(item=>item.id===allocation.guestGroupId)?.name||'Guest stay'):'';
-  return {kind,status:room.overdue?'Overdue checkout':unbooked?'Not booked':stayStatus(statusOf(room)),family,count:allocation?(allocation.headcountPending?'Count pending':`${countOf(allocation)} of ${room.capacity} guests`):`Sleeps ${room.capacity}`,arrivals:allocation&&!allocation.headcountPending?`${allocation.arrived} arrived`:'—',action:unbooked?'View room':allocation?'View stay':'Assign room',label:data.labels.find(item=>item.id===allocation?.labelId)?.name,aria:[roomName(room),propertyName(room.propertyId),areaName(room.areaId),room.overdue?'Checked in, overdue checkout':unbooked?'Not booked for this night':stayStatus(statusOf(room)),family,allocation?.headcountPending?`Guest count pending, sleeps ${room.capacity}`:allocation?`${countOf(allocation)} of ${room.capacity} guests, ${allocation.arrived} arrived`:`Sleeps ${room.capacity}`].filter(Boolean).join(', ')};
+  const occupancy=roomOccupancy(room),allocation=room.allocation,unbooked=room.booked===false&&!room.overdue,kind=room.overdue?'overdue':unbooked?'unbooked':statusOf(room)==='Available'?'available':statusOf(room)==='Allotted'?'reserved':'occupied';
+  const family=allocation?((room.stays?.length||0)>1?'Shared · '+room.stays!.length+' groups · '+allocation.group:(allocation.group.trim()||data.guests.find(item=>item.id===allocation.guestGroupId)?.name||'Guest stay')):'';
+  return {kind,status:room.overdue?'Overdue checkout':unbooked?'Not booked':stayStatus(statusOf(room)),family,count:allocation?(occupancy.unknown?`${occupancy.assigned} known · count pending`:`${occupancy.assigned} of ${room.capacity} guests`):`Sleeps ${room.capacity}`,arrivals:allocation&&!allocation.headcountPending?`${allocation.arrived} arrived`:'—',action:unbooked?'View room':allocation?((room.stays?.length||0)>1?'View groups':'View stay'):'Assign room',label:[...new Set(roomAssignments(room).map(a=>data.labels.find(item=>item.id===a.labelId)?.name).filter(Boolean))].join(', '),aria:[roomName(room),propertyName(room.propertyId),areaName(room.areaId),room.overdue?'Checked in, overdue checkout':unbooked?'Not booked for this night':stayStatus(statusOf(room)),family,allocation?.headcountPending?`Guest count pending, sleeps ${room.capacity}`:allocation?`${countOf(allocation)} of ${room.capacity} guests, ${allocation.arrived} arrived`:`Sleeps ${room.capacity}`].filter(Boolean).join(', ')};
  }
  return <section className="room-browser" aria-labelledby="room-browser-title">
   <nav className="rb-breadcrumb" aria-label="Room navigation"><Link to="/stays">Stays</Link><span>/</span><Link to={nightPath(date)}>Night overview</Link><span>/</span><span aria-current="page">Rooms</span></nav>

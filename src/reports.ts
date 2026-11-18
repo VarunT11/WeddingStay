@@ -1,5 +1,5 @@
 import {stayDate,stayDates,stayStatus} from './StayUI';
-import { countOf, filterRooms, statusOf, summary, type Dataset, type Room } from './data.ts';
+import { roomAssignments,countOf, filterRooms, statusOf, summary, type Dataset, type Room } from './data.ts';
 
 export type ReportScope = 'all' | 'current' | 'available';
 export type ReportContext = { area?: string; property?:string; guest?:string; status?: string; type?: string; query?: string; label?: string };
@@ -60,14 +60,14 @@ export async function generateReport(data:Dataset,options:ReportOptions,context:
  if(options.includeContact){headings.push('Contact');widths.push(30);}
  if(options.includeNotes){headings.push('Allocation notes');widths.push(45);}
  const columnStyles=Object.fromEntries(widths.map((cellWidth,index)=>[index,{cellWidth}]));
- const rows=(rooms:Room[])=>rooms.map(room=>{
-  const allocation=room.allocation,label=data.labels.find(l=>l.id===allocation?.labelId);
+ const rows=(rooms:Room[])=>rooms.flatMap(room=>(roomAssignments(room).length?roomAssignments(room):[undefined]).map(allocation=>{
+  const label=data.labels.find(l=>l.id===allocation?.labelId);
   const occupants=allocation?.headcountPending?'Guest count unknown':allocation?[...allocation.names,...(allocation.unnamed?['+'+allocation.unnamed+' unnamed guests']:[])].join('\n'):'-';
-  const values=[room.number,room.special||room.type,stayStatus(statusOf(room)),allocation?.group||'-',data.guests.find(g=>g.id===allocation?.guestGroupId)?.name||'-',allocation?stayDates(allocation.checkIn,allocation.checkOut):'-',label?.name||'-',occupants,allocation?.headcountPending?'Unknown':`${countOf(allocation)} / ${room.capacity}`,String(allocation?.arrived||0)];
+  const values=[room.number,room.special||room.type,allocation?(allocation.checkedIn?'Checked in':'Reserved'):stayStatus(statusOf(room)),allocation?.group||'-',data.guests.find(g=>g.id===allocation?.guestGroupId)?.name||'-',allocation?stayDates(allocation.checkIn,allocation.checkOut):'-',label?.name||'-',occupants,allocation?.headcountPending?'Unknown':`${countOf(allocation)} / ${room.capacity}`,String(allocation?.arrived||0)];
   if(options.includeContact)values.push(allocation?.contact||'-');
   if(options.includeNotes)values.push(allocation?.notes||'-');
   return values;
- });
+ }));
  for(const area of data.properties.flatMap(property=>data.areas.filter(a=>a.propertyId===property.id))){
   const rooms=selection.rooms.filter(room=>room.areaId===area.id);if(!rooms.length)continue;
   if(y>pageHeight-46){doc.addPage();pageHeader();y=35;}

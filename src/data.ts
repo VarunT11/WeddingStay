@@ -1,9 +1,9 @@
-import { withGuestCategories, STORAGE_KEY, LEGACY_STORAGE_KEY, MigrationRequired, seed, projectData, propertyForRoom, allocationOn, countOf, statusOf, isDate, overlaps, type Dataset, type Room, type Allocation, type StayAllocation, type DateRange, type HistoryEntry, type AllocationLabel, type LegacyDataset } from './model';
+import { roomOccupancy,roomStayError,roomAssignments,withGuestCategories, STORAGE_KEY, LEGACY_STORAGE_KEY, MigrationRequired, seed, projectData, propertyForRoom, allocationOn, countOf, statusOf, isDate, overlaps, type Dataset, type Room, type Allocation, type StayAllocation, type DateRange, type HistoryEntry, type AllocationLabel, type LegacyDataset } from './model';
 export * from './model';
 
 export function summary(inventory: Room[]) {
   const rooms=inventory.filter(r=>r.booked!==false||r.overdue);
-  return { total:rooms.length, available:rooms.filter(r=>statusOf(r)==='Available').length, allotted:rooms.filter(r=>statusOf(r)==='Allotted').length, occupied:rooms.filter(r=>statusOf(r)==='Occupied').length, capacity:rooms.reduce((s,r)=>s+r.capacity,0), assigned:rooms.reduce((s,r)=>s+countOf(r.allocation),0), arrived:rooms.reduce((s,r)=>s+(r.allocation?.arrived||0),0), pending:rooms.filter(r=>r.allocation?.headcountPending).length };
+  return { total:rooms.length, available:rooms.filter(r=>statusOf(r)==='Available').length, allotted:rooms.filter(r=>statusOf(r)==='Allotted').length, occupied:rooms.filter(r=>statusOf(r)==='Occupied').length, capacity:rooms.reduce((s,r)=>s+r.capacity,0), assigned:rooms.reduce((s,r)=>s+roomOccupancy(r).assigned,0), arrived:rooms.reduce((s,r)=>s+roomOccupancy(r).arrived,0), pending:rooms.filter(r=>r.allocation?.headcountPending).length };
 }
 function requireValue(ok:unknown,message:string):asserts ok { if(!ok)throw new Error(message); }
 function unique(rows:{id:string}[],name:string) {
@@ -48,15 +48,24 @@ export function validateData(data: Dataset): void {
     requireValue(Number.isInteger(a.arrived)&&a.arrived>=0&&a.arrived<=total&&a.checkedIn===(a.arrived>0)&&(!a.headcountPending||!a.checkedIn),'Arrival counts and check-in status must agree.');
     if(a.lifecycle==='active'){
       requireValue(!a.headcountPending||!!(a.group.trim()||a.guestGroupId),'Pending-headcount reservations need a group name or guest-group link.');
-      requireValue(!a.checkedIn||!data.allocations.some(b=>b.id!==a.id&&b.roomId===a.roomId&&b.lifecycle==='active'&&b.checkedIn),'Only one stay can have checked-in occupants in a room.');
       requireValue(propertyForRoom(data,room)?.bookedRanges.some(r=>r.checkIn<=a.checkIn&&a.checkOut<=r.checkOut),'The stay must fit within the property booking.');
-      requireValue(!data.allocations.some(b=>b.id!==a.id&&b.roomId===a.roomId&&b.lifecycle==='active'&&overlaps(a,b)),'This room already has an overlapping stay.');
+      const sharingError=roomStayError(data,a.roomId,a,a.id,false);requireValue(!sharingError,sharingError);
     }
   }
   for(const r of data.requirements){range(r);
     requireValue(!data.requirements.some(other=>other.id!==r.id&&other.labelId===r.labelId&&overlaps(other,r)&&(!other.propertyId||!r.propertyId||other.propertyId===r.propertyId)&&(!other.guestGroupId||!r.guestGroupId||other.guestGroupId===r.guestGroupId)),'Overlapping requirements would count the same allocations twice. Choose separate dates, labels or non-overlapping property/guest scopes.');requireValue(labels.has(r.labelId)&&(!r.propertyId||properties.has(r.propertyId))&&(!r.guestGroupId||guests.has(r.guestGroupId))&&Number.isInteger(r.roomsRequired)&&r.roomsRequired>0,'Room requirement details are invalid.');}
 }
 export function normalizeData(data:Dataset): Dataset { const next=withGuestCategories(data);validateData(next);return projectData(next); }
+export function validateStayChanges(before:Dataset,next:Dataset):void {
+ for(const stay of next.allocations){
+  if(stay.lifecycle!=='active')continue;
+  const previous=before.allocations.find(a=>a.id===stay.id);
+  if(!previous||previous.lifecycle!=='active'||previous.roomId!==stay.roomId||previous.checkIn!==stay.checkIn||previous.checkOut!==stay.checkOut||stay.arrived>previous.arrived){
+   const error=roomStayError(next,stay.roomId,stay,stay.id);
+   if(error)throw new Error('Room '+next.rooms.find(r=>r.id===stay.roomId)?.number+': '+error);
+  }
+ }
+}
 export function initialData(): Dataset {
   const saved=localStorage.getItem(STORAGE_KEY);
   if(saved)return normalizeData(JSON.parse(saved));
@@ -72,7 +81,7 @@ export function defaultStay(data:Dataset,room:Room):DateRange {
 }
 export const historyTitles:Record<string,string>={'allocation-created':'Allocation created','allocation-edited':'Allocation edited','checked-in':'Guests checked in','arrivals-updated':'Arrival count updated','allocation-cancelled':'Allocation cancelled','checked-out':'Guests checked out','allocation-moved':'Allocation moved','action-recovered':'Action reversed'};
 export function createHistoryEvent(data:Dataset,action:string,before:Room[],after:Room[],extra:Partial<HistoryEntry>={}):HistoryEntry {
-  return {id:crypto.randomUUID(),at:new Date().toISOString(),action,roomId:before[0]?.id,allocationId:(before[0]?.allocation||after[0]?.allocation)?.id,before:structuredClone(before),after:structuredClone(after),roomNames:Object.fromEntries([...before,...after].map(r=>[r.id,r.number])),areaNames:Object.fromEntries(data.areas.map(a=>[a.id,a.name])),labelNames:Object.fromEntries(data.labels.map(l=>[l.id,l.name])),...extra};
+  return {id:crypto.randomUUID(),at:new Date().toISOString(),action,roomId:before[0]?.id,allocationId:(before[0]?.allocation||after[0]?.allocation)?.id,before:structuredClone(before.map(({stays:_,...room})=>room)),after:structuredClone(after.map(({stays:_,...room})=>room)),roomNames:Object.fromEntries([...before,...after].map(r=>[r.id,r.number])),areaNames:Object.fromEntries(data.areas.map(a=>[a.id,a.name])),labelNames:Object.fromEntries(data.labels.map(l=>[l.id,l.name])),...extra};
 }
 export function changeAllocation(data:Dataset,roomId:string,allocation:Allocation|undefined,allocationId?:string):Dataset {
   const room=data.rooms.find(r=>r.id===roomId);if(!room)throw new Error('Room no longer exists.');
@@ -80,8 +89,8 @@ export function changeAllocation(data:Dataset,roomId:string,allocation:Allocatio
   if(allocationId&&!previous)throw new Error('This stay no longer exists.');
   if(previous&&previous.lifecycle!=='active')throw new Error('Completed and cancelled stays are read-only.');
   if(!allocation&&!previous)throw new Error('Choose the stay to release.');
-  if(allocation?.checkedIn&&data.allocations.some(a=>a.roomId===roomId&&a.id!==previous?.id&&a.lifecycle==='active'&&a.checkedIn))throw new Error('Check out the guests already occupying this room before another check-in.');
   const nextAllocation:StayAllocation|undefined=allocation?{...allocation,...(allocation.checkIn&&allocation.checkOut?{checkIn:allocation.checkIn,checkOut:allocation.checkOut}:previous?{checkIn:previous.checkIn,checkOut:previous.checkOut}:defaultStay(data,room)),id:previous?.id||allocation.id||crypto.randomUUID(),roomId,lifecycle:'active',headcountPending:!!allocation.headcountPending,createdAt:previous?.createdAt||now,updatedAt:now,actualCheckIn:previous?.actualCheckIn||(allocation.checkedIn?now:undefined),actualCheckOut:undefined}:undefined;
+  if(nextAllocation){const error=roomStayError(data,roomId,nextAllocation,previous?.id,!previous||nextAllocation.checkIn!==previous.checkIn||nextAllocation.checkOut!==previous.checkOut||nextAllocation.arrived>previous.arrived);if(error)throw new Error(error);}
   const before={...room,allocation:previous};
   const after={...room,allocation:nextAllocation,updatedAt:now};
   const action=!previous?'allocation-created':!nextAllocation?(previous.checkedIn?'checked-out':'allocation-cancelled'):!previous.checkedIn&&nextAllocation.checkedIn?'checked-in':previous.arrived!==nextAllocation.arrived?'arrivals-updated':'allocation-edited';
@@ -94,7 +103,7 @@ export function moveAllocation(data:Dataset,sourceId:string,destinationId:string
   const source=data.rooms.find(r=>r.id===sourceId),destination=data.rooms.find(r=>r.id===destinationId),allocation=allocationId?data.allocations.find(a=>a.id===allocationId&&a.roomId===sourceId&&a.lifecycle==='active'):allocationOn(data,sourceId);
   if(!source||!allocation)throw new Error('The source room no longer has an allocation.');
   if(!destination||sourceId===destinationId)throw new Error('Choose a different destination room.');
-  if(allocation.checkedIn&&data.allocations.some(a=>a.roomId===destinationId&&a.lifecycle==='active'&&a.checkedIn))throw new Error('The destination already has checked-in guests.');
+  const destinationError=roomStayError(data,destinationId,allocation);if(destinationError)throw new Error(destinationError);
   const now=new Date().toISOString(),moved={...allocation,roomId:destinationId,updatedAt:now};
   const next={...data,updatedAt:now,allocations:data.allocations.map(a=>a.id===allocation.id?moved:a),history:[...data.history,createHistoryEvent(data,'allocation-moved',[{...source,allocation},destination],[{...source,allocation:undefined},{...destination,allocation:moved}],{destinationRoomId:destinationId})]};
   return normalizeData(next);
@@ -106,6 +115,7 @@ function recoveryCandidate(data:Dataset,event:HistoryEntry):Dataset {
   const existing=data.allocations.find(a=>a.id===original.id);
   if(!existing)throw new Error('The original stay is unavailable.');
   const now=new Date().toISOString(),restored:StayAllocation={...existing,...original,id:existing.id,roomId:event.roomId!,checkIn:original.checkIn,checkOut:original.checkOut,lifecycle:'active',headcountPending:!!original.headcountPending,actualCheckIn:original.actualCheckIn,actualCheckOut:original.actualCheckOut,updatedAt:now};
+  const error=roomStayError(data,restored.roomId,restored,restored.id);if(error)throw new Error(error);
   return normalizeData({...data,updatedAt:now,allocations:data.allocations.map(a=>a.id===restored.id?restored:a)});
 }
 export function recoveryReason(data:Dataset,event:HistoryEntry):string|null {
@@ -125,5 +135,8 @@ export function recoverAction(data:Dataset,eventId:string):Dataset {
 }
 export function filterRooms(rooms:Room[],labels:AllocationLabel[],filters:{area?:string;property?:string;guest?:string;status?:string;type?:string;query?:string;label?:string},guests:Dataset['guests']=[]):Room[] {
   const query=(filters.query||'').trim().toLowerCase();
-  return rooms.filter(room=>(!filters.guest||room.allocation?.guestGroupId===filters.guest)&&(!filters.property||room.propertyId===filters.property)&&(!filters.status||room.booked!==false||room.overdue)&&(!filters.area||room.areaId===filters.area)&&(!filters.status||statusOf(room)===filters.status)&&(!filters.type||room.type===filters.type)&&(!filters.label||(filters.status==='Available'?!room.allocation:room.allocation?.labelId===filters.label))&&[room.number,room.allocation?.group||'',labels.find(l=>l.id===room.allocation?.labelId)?.name||'',...(room.allocation?.names||[]),...guests.filter(g=>g.id===room.allocation?.guestGroupId).flatMap(g=>[g.name,...g.members])].some(value=>value.toLowerCase().includes(query))).sort((a,b)=>a.number.localeCompare(b.number,undefined,{numeric:true}));
+  return rooms.filter(room=>{
+    const stays=roomAssignments(room);
+    return (!filters.guest||stays.some(a=>a.guestGroupId===filters.guest))&&(!filters.property||room.propertyId===filters.property)&&(!filters.status||room.booked!==false||room.overdue)&&(!filters.area||room.areaId===filters.area)&&(!filters.status||statusOf(room)===filters.status)&&(!filters.type||room.type===filters.type)&&(!filters.label||(filters.status==='Available'?!stays.length:stays.some(a=>a.labelId===filters.label)))&&[room.number,...stays.flatMap(a=>[a.group,labels.find(l=>l.id===a.labelId)?.name||'',...a.names,...guests.filter(g=>g.id===a.guestGroupId).flatMap(g=>[g.name,...g.members])])].some(value=>value.toLowerCase().includes(query));
+  }).sort((a,b)=>a.number.localeCompare(b.number,undefined,{numeric:true}));
 }

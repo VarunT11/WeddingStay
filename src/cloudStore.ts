@@ -1,6 +1,6 @@
 import {collection,doc,runTransaction,serverTimestamp,writeBatch} from 'firebase/firestore';
 import {auth,database,weddingId} from './firebase';
-import {storedData,validateData,type Dataset} from './data';
+import {storedData,validateStayChanges,validateData,type Dataset} from './data';
 
 export const recordKinds=['guestCategories','guests','events','invitations','properties','areas','rooms','allocations','requirements','labels','history'] as const;
 type Kind=typeof recordKinds[number];
@@ -18,30 +18,32 @@ export function replacementPreview(before:Dataset,next:Dataset){
 }
 
 export async function commitWedding(before:CloudSnapshot,next:Dataset):Promise<CloudSnapshot>{
+ if((before.clientSchema||0)>3)throw new Error('Update the app before editing this wedding. Your local copy is kept.');
  if(!navigator.onLine)throw new Error('You are offline. Reconnect before saving changes.');
  const uid=auth?.currentUser?.uid;if(!uid||!database)throw new Error('Sign in before saving.');
- const canonical=clean(storedData(next));validateData(canonical);
+ const canonical=clean(storedData(next));validateData(canonical);validateStayChanges(before.data,canonical);
  const changes:{kind:Kind;id:string;data:unknown;deleted:boolean}[]=[];
- for(const kind of recordKinds){const previous=kind==='guestCategories'&&before.clientSchema!==2?new Map<string,{id:string}>():records(before.data,kind),current=records(canonical,kind);for(const [id,value] of current)if(json(value)!==json(previous.get(id)))changes.push({kind,id,data:value,deleted:false});for(const id of previous.keys())if(!current.has(id))changes.push({kind,id,data:null,deleted:true});}
- if(!changes.length&&before.clientSchema===2)return before;
+ for(const kind of recordKinds){const previous=kind==='guestCategories'&&(before.clientSchema||0)<2?new Map<string,{id:string}>():records(before.data,kind),current=records(canonical,kind);for(const [id,value] of current)if(json(value)!==json(previous.get(id)))changes.push({kind,id,data:value,deleted:false});for(const id of previous.keys())if(!current.has(id))changes.push({kind,id,data:null,deleted:true});}
+ if(!changes.length&&before.clientSchema===3)return before;
  if(changes.length>440)throw new Error('This change is too large for one shared save. Use smaller changes.');
  const revision=before.revision+1;
  await runTransaction(database,async transaction=>{
   const snapshot=await transaction.get(root()),head=snapshot.data() as CloudHead|undefined;
+  if((head?.clientSchema||0)>3)throw new Error('Update the app before editing this wedding.');
   if(!head||head.state!=='ready')throw new Error('The shared wedding is not ready for editing.');
   if(head.revision!==before.revision||head.activeVersion!==before.datasetVersion)throw new Error('The wedding changed on another device. Your draft is kept. Close this form, review the latest records and reapply your changes.');
   const collectionRevisions={...head.collectionRevisions};
   for(const change of changes){collectionRevisions[change.kind]=revision;transaction.set(doc(datasetRoot(head.activeVersion),change.kind,change.id),{data:change.data,deleted:change.deleted,revision,updatedBy:uid,updatedAt:serverTimestamp()});}
-  transaction.update(root(),{revision,clientSchema:2,schemaRevision:revision,collectionRevisions,updatedBy:uid,updatedAt:serverTimestamp()});
+  transaction.update(root(),{revision,clientSchema:3,schemaRevision:revision,collectionRevisions,updatedBy:uid,updatedAt:serverTimestamp()});
  });
- return {data:canonical,revision,datasetVersion:before.datasetVersion,clientSchema:2};
+ return {data:canonical,revision,datasetVersion:before.datasetVersion,clientSchema:3};
 }
 
 export async function replaceWedding(before:CloudSnapshot,candidate:Dataset,onProgress:(message:string)=>void){
  if(!database||!auth?.currentUser||!navigator.onLine)throw new Error('Sign in and connect to the internet before replacing data.');
  const uid=auth.currentUser.uid,data=clean(storedData(candidate));validateData(data);
  const version=doc(collection(root(),'versions')),revision=before.revision+1;
- const assertCurrent=(head:CloudHead|undefined)=>{if(head?.state!=='ready'||head.revision!==before.revision||head.activeVersion!==before.datasetVersion)throw new Error('Cloud data changed after your preview. Nothing was replaced. Close this preview and review the latest cloud data before trying again.');};
+ const assertCurrent=(head:CloudHead|undefined)=>{if((head?.clientSchema||0)>3||head?.state!=='ready'||head.revision!==before.revision||head.activeVersion!==before.datasetVersion)throw new Error('Cloud data changed after your preview. Nothing was replaced. Close this preview and review the latest cloud data before trying again.');};
  await runTransaction(database,async transaction=>{const current=await transaction.get(root());assertCurrent(current.data() as CloudHead|undefined);transaction.set(version,{state:'uploading',baseRevision:before.revision,baseVersion:before.datasetVersion||'',createdBy:uid,createdAt:serverTimestamp()});});
  const all=recordKinds.flatMap(kind=>[...records(data,kind)].map(([id,value])=>({kind,id,value})));
  for(let start=0;start<all.length;start+=150){const batch=writeBatch(database);for(const record of all.slice(start,start+150))batch.set(doc(version,record.kind,record.id),{data:record.value,deleted:false,revision,updatedBy:uid,updatedAt:serverTimestamp()});await batch.commit();onProgress('Uploaded '+Math.min(start+150,all.length)+' of '+all.length+' records…');}
@@ -49,7 +51,7 @@ export async function replaceWedding(before:CloudSnapshot,candidate:Dataset,onPr
  await runTransaction(database,async transaction=>{
   const current=await transaction.get(root()),staged=await transaction.get(version);assertCurrent(current.data() as CloudHead|undefined);
   if(staged.data()?.state!=='ready')throw new Error('The upload is incomplete. Current cloud data was kept.');
-  transaction.update(root(),{activeVersion:version.id,previousVersion:before.datasetVersion||'legacy',revision,clientSchema:2,schemaRevision:revision,collectionRevisions:Object.fromEntries(recordKinds.map(kind=>[kind,data[kind].length?revision:0])),wedding:data.wedding,version:3,referenceData:data.referenceData,createdAt:data.createdAt,updatedAt:serverTimestamp(),updatedBy:uid});
+  transaction.update(root(),{activeVersion:version.id,previousVersion:before.datasetVersion||'legacy',revision,clientSchema:3,schemaRevision:revision,collectionRevisions:Object.fromEntries(recordKinds.map(kind=>[kind,data[kind].length?revision:0])),wedding:data.wedding,version:3,referenceData:data.referenceData,createdAt:data.createdAt,updatedAt:serverTimestamp(),updatedBy:uid});
  });
 }
 
@@ -59,9 +61,10 @@ export async function initializeWedding(candidate:Dataset,onProgress:(message:st
  const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(json(data))),hash=Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,'0')).join('');
  await runTransaction(database,async transaction=>{
   const snapshot=await transaction.get(root()),head=snapshot.data();
+  if((head?.clientSchema||0)>3)throw new Error('Update the app before initializing this wedding.');
   if(head?.state==='ready')throw new Error('Cloud data already exists. Replacement is disabled.');
   if(head?.state==='initializing'&&head.importHash!==hash)throw new Error('A different import is in progress. Choose the same file to resume.');
-  transaction.set(root(),{state:'initializing',revision:0,clientSchema:2,schemaRevision:0,collectionRevisions:{},wedding:data.wedding,version:3,referenceData:data.referenceData,createdAt:data.createdAt,updatedAt:serverTimestamp(),updatedBy:uid,importHash:hash});
+  transaction.set(root(),{state:'initializing',revision:0,clientSchema:3,schemaRevision:0,collectionRevisions:{},wedding:data.wedding,version:3,referenceData:data.referenceData,createdAt:data.createdAt,updatedAt:serverTimestamp(),updatedBy:uid,importHash:hash});
  });
  const all=recordKinds.flatMap(kind=>[...records(data,kind)].map(([id,value])=>({kind,id,value})));
  for(let start=0;start<all.length;start+=150){const batch=writeBatch(database);for(const record of all.slice(start,start+150))batch.set(doc(root(),record.kind,record.id),{data:record.value,deleted:false,revision:1,updatedBy:uid,updatedAt:serverTimestamp()});await batch.commit();onProgress('Uploaded '+Math.min(start+150,all.length)+' of '+all.length+' records…');}

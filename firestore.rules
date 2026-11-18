@@ -28,8 +28,8 @@ service cloud.firestore {
     match /weddings/{wedding} {
       allow get: if active(wedding);
       allow list, delete: if false;
-      allow create: if owner(wedding) && request.resource.data.state == 'initializing' && request.resource.data.revision == 0 && request.resource.data.updatedBy == request.auth.uid;
-      allow update: if active(wedding) && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && request.resource.data.clientSchema == 2 && request.resource.data.schemaRevision == request.resource.data.revision && (
+      allow create: if owner(wedding) && request.resource.data.state == 'initializing' && request.resource.data.clientSchema == 3 && request.resource.data.revision == 0 && request.resource.data.updatedBy == request.auth.uid;
+      allow update: if active(wedding) && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && request.resource.data.clientSchema == 3 && resource.data.get('clientSchema', 0) <= 3 && request.resource.data.schemaRevision == request.resource.data.revision && (
         (resource.data.state == 'ready' && request.resource.data.state == 'ready'
           && request.resource.data.revision == resource.data.revision + 1
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['revision','clientSchema','schemaRevision','collectionRevisions','updatedAt','updatedBy']))

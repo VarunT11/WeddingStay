@@ -1,4 +1,4 @@
-import {storedData,validateData,type Dataset} from './data';
+import {storedData,validateStayChanges,validateData,type Dataset} from './data';
 import {recordKinds,type CloudSnapshot} from './cloudStore';
 import {firebaseProjectId,weddingId} from './firebase';
 import {type CloudRole} from './cloudCache';
@@ -55,9 +55,10 @@ export function mergeOffline(base:Dataset,local:Dataset,cloud:Dataset,choices:Ch
 }
 // Preflight every intermediate dataset. No upload starts until the entire plan is valid.
 export function planOfflineBatches(before:Dataset,target:Dataset,clientSchema?:number):Dataset[]{
- validateData(target);let current=structuredClone(storedData(before)) as Dataset,pending=recordChanges(before,target),batchWrites=0;const batches:Dataset[]=[];
+ if((clientSchema||0)>3)throw new Error('Update the app before syncing this workspace. Local work is kept.');
+ validateData(target);validateStayChanges(before,target);let current=structuredClone(storedData(before)) as Dataset,pending=recordChanges(before,target),batchWrites=0;const batches:Dataset[]=[];
  for(const change of pending)if(change.kind==='history'&&rows(before,'history').has(change.id))throw new Error('Existing history entries cannot be changed.');
- if(clientSchema!==2){if(before.guestCategories.length>440)throw new Error('This older cloud dataset needs an owner-led category migration before offline sync. Local work is kept.');batches.push(structuredClone(current));}
+ if((clientSchema||0)<2){if(before.guestCategories.length>440)throw new Error('This older cloud dataset needs an owner-led category migration before offline sync. Local work is kept.');batches.push(structuredClone(current));}
  while(pending.length){
   let advanced=false;
   for(let index=0;index<pending.length;){

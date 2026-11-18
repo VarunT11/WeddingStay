@@ -1,4 +1,4 @@
-import {changeAllocation,isDate,nextDay,normalizeData,overlaps,propertyForRoom,type Dataset,type DateRange,type Room,type RoomRequirement} from './data';
+import {roomSpace,changeAllocation,isDate,nextDay,normalizeData,overlaps,propertyForRoom,type Dataset,type DateRange,type Room,type RoomRequirement} from './data';
 
 export function requirementMatches(data:Dataset,r:RoomRequirement,a:Dataset['allocations'][number]) {
  const room=data.rooms.find(room=>room.id===a.roomId);
@@ -27,17 +27,19 @@ export function saveRequirement(data:Dataset,r:RoomRequirement):Dataset {
  return normalizeData({...data,requirements:previous?data.requirements.map(x=>x.id===r.id?next:x):[...data.requirements,next]});
 }
 export function deleteRequirement(data:Dataset,id:string):Dataset {return normalizeData({...data,requirements:data.requirements.filter(r=>r.id!==id)});}
-export type BulkDraft=DateRange&{labelId?:string;guestGroupId?:string;propertyId?:string;group:string;contact:string;notes:string};
-export function bulkRoomAvailable(data:Dataset,room:Room,dates:DateRange) {
- return room.capacity>0&&!!propertyForRoom(data,room)?.bookedRanges.some(r=>r.checkIn<=dates.checkIn&&dates.checkOut<=r.checkOut)&&!data.allocations.some(a=>a.roomId===room.id&&a.lifecycle==='active'&&overlaps(a,dates));
+export type BulkDraft=DateRange&{labelId?:string;guestGroupId?:string;propertyId?:string;group:string;contact:string;notes:string;counts?:Record<string,number>;includeShared?:boolean};
+export function bulkRoomAvailable(data:Dataset,room:Room,dates:DateRange,count?:number,guestId?:string) {
+ const space=roomSpace(data,room.id,dates);
+ return space.booked&&!space.overdue.length&&!space.unknown&&(!space.others.length||(count!==undefined&&Number.isInteger(count)&&count>0&&count<=space.remaining&&!space.others.some(a=>guestId&&a.guestGroupId===guestId)));
 }
 export function bulkAllocate(data:Dataset,draft:BulkDraft,roomIds:string[]):Dataset {
  if(!isDate(draft.checkIn)||!isDate(draft.checkOut)||draft.checkIn>=draft.checkOut)throw new Error('Choose valid stay dates with checkout after check-in.');
  if(!draft.group.trim()&&!draft.guestGroupId)throw new Error('Enter a group name or choose a guest group.');
  if(!roomIds.length||new Set(roomIds).size!==roomIds.length)throw new Error('Select one or more distinct rooms.');
- for(const id of roomIds){const room=data.rooms.find(r=>r.id===id);if(!room||!bulkRoomAvailable(data,room,draft)||(draft.propertyId&&propertyForRoom(data,room)?.id!==draft.propertyId))throw new Error('A selected room is no longer available for this stay. Review your selection.');}
+ for(const id of roomIds){const room=data.rooms.find(r=>r.id===id);if(!room||!bulkRoomAvailable(data,room,draft,draft.includeShared?draft.counts?.[id]:undefined,draft.guestGroupId)||(draft.propertyId&&propertyForRoom(data,room)?.id!==draft.propertyId))throw new Error('A selected room is no longer available for this stay. Review your selection.');}
+ for(const id of roomIds)if(draft.counts&&(!Number.isInteger(draft.counts[id])||draft.counts[id]<1))throw new Error('Enter a guest count of at least one for every selected room.');
  let next=data;
- for(const roomId of roomIds)next=changeAllocation(next,roomId,{id:crypto.randomUUID(),group:draft.group.trim(),guestGroupId:draft.guestGroupId,labelId:draft.labelId,checkIn:draft.checkIn,checkOut:draft.checkOut,contact:draft.contact.trim(),notes:draft.notes.trim(),headcountPending:true,names:[],unnamed:0,arrived:0,checkedIn:false});
+ for(const roomId of roomIds)next=changeAllocation(next,roomId,{id:crypto.randomUUID(),group:draft.group.trim(),guestGroupId:draft.guestGroupId,labelId:draft.labelId,checkIn:draft.checkIn,checkOut:draft.checkOut,contact:draft.contact.trim(),notes:draft.notes.trim(),headcountPending:!draft.counts,names:[],unnamed:draft.counts?.[roomId]||0,arrived:0,checkedIn:false});
  return next;
 }
 export function operationsForDate(data:Dataset) {

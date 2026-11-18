@@ -28,6 +28,7 @@ export function createWeddingSync({baseline:initial,onData,onState,onError,onAct
    for(let attempt=0;attempt<3&&!stopped;attempt++){
     const target:CloudHead|undefined=head;
     if(!target||target.state!=='ready'||!headOnline)return;
+    if((target.clientSchema||0)>3)throw new Error('Update the app to open this newer wedding format. Your last complete copy is kept.');
     if(baseline&&baseline.datasetVersion===target.activeVersion&&baseline.revision>target.revision)return;
     if(baseline&&baseline.datasetVersion===target.activeVersion&&baseline.revision===target.revision&&baseline.clientSchema===target.clientSchema){onData(baseline);onState('online');return;}
     onState('syncing');

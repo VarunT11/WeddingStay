@@ -1,3 +1,4 @@
+import {stayDate,stayDates,stayStatus} from './StayUI';
 import { countOf, filterRooms, statusOf, summary, type Dataset, type Room } from './data.ts';
 
 export type ReportScope = 'all' | 'current' | 'available';
@@ -8,12 +9,12 @@ export function reportSelection(data:Dataset,options:ReportOptions,context:Repor
  const filters=options.scope==='current'?context:options.scope==='available'?{status:'Available'}:{};
  const rooms=filterRooms(data.rooms.filter(r=>r.booked!==false||r.overdue),data.labels,filters,data.guests);
  const title=options.scope==='all'?'All booked rooms':options.scope==='available'?'Available rooms':'Current results';
- const descriptions:string[]=['Selected night: '+(data.viewDate||data.wedding.defaultDate),'Availability in this report covers the selected night. Bulk allocation checks every night in its chosen stay.'];
+ const descriptions:string[]=['Selected night: '+stayDate(data.viewDate||data.wedding.defaultDate,true),'Availability in this report covers the selected night. Bulk allocation checks every night in its chosen stay.'];
  if(options.scope==='current'){
   if(context.guest)descriptions.push('Guest group: '+(data.guests.find(g=>g.id===context.guest)?.name||context.guest));
   if(context.property)descriptions.push('Property: '+(data.properties.find(p=>p.id===context.property)?.name||context.property));
   if(context.area)descriptions.push('Area: '+(data.areas.find(a=>a.id===context.area)?.name||context.area));
-  if(context.status)descriptions.push('Status: '+context.status);
+  if(context.status)descriptions.push('Status: '+stayStatus(context.status));
   if(context.type)descriptions.push('Type: '+context.type);
   if(context.query?.trim())descriptions.push('Search: '+context.query.trim());
   if(context.label){const name=data.labels.find(l=>l.id===context.label)?.name||context.label;descriptions.push((context.status==='Available'?'Allocation context (rooms unassigned): ':'Label: ')+name);}
@@ -36,15 +37,15 @@ export async function generateReport(data:Dataset,options:ReportOptions,context:
  function pageHeader(first=false){
   doc.setFillColor(248,246,240);doc.rect(0,0,pageWidth,pageHeight,'F');
   doc.setFont('helvetica','bold');doc.setTextColor(...wine);doc.setFontSize(first?22:15);doc.text('WeddingStay',margin,first?22:17);
-  doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(...muted);doc.text('NIGHT OF '+selectedDate,pageWidth-margin,first?17:15,{align:'right'});
-  if(first){doc.setFontSize(13);doc.setTextColor(...ink);doc.text(doc.splitTextToSize(data.wedding.name+' | Room allocation report',width).slice(0,1),margin,32);doc.setFontSize(8);doc.setTextColor(...muted);doc.text(generation,pageWidth-margin,23,{align:'right'});}
-  else{doc.setFontSize(8);doc.text('Room allocation report | '+selection.title,margin,24);doc.text(generation,pageWidth-margin,23,{align:'right'});}
+  doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(...muted);doc.text('NIGHT OF '+stayDate(selectedDate,true),pageWidth-margin,first?17:15,{align:'right'});
+  if(first){doc.setFontSize(13);doc.setTextColor(...ink);doc.text(doc.splitTextToSize(data.wedding.name+' | Room report',width).slice(0,1),margin,32);doc.setFontSize(8);doc.setTextColor(...muted);doc.text(generation,pageWidth-margin,23,{align:'right'});}
+  else{doc.setFontSize(8);doc.text('Room report | '+selection.title,margin,24);doc.text(generation,pageWidth-margin,23,{align:'right'});}
  }
  pageHeader(true);
  let y=41;
  doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(...wine);doc.text(selection.title,margin,y);y+=6;
  const s=selection.totals;
- const countLine=`${s.total} rooms | ${s.available} available | ${s.allotted} allotted | ${s.occupied} occupied | ${s.assigned} assigned | ${s.arrived} arrived`;
+ const countLine=`${s.total} rooms | ${s.available} available | ${s.allotted} reserved | ${s.occupied} checked in | ${s.assigned} assigned | ${s.arrived} arrived`;
  doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(...muted);doc.text(countLine,margin,y);y+=6;
  for(const text of selection.descriptions){const lines=doc.splitTextToSize(text,width);doc.text(lines,margin,y);y+=lines.length*4+1;}
  const privateFields=[options.includeContact?'Contact numbers':null,options.includeNotes?'Allocation notes':null].filter(Boolean);
@@ -61,8 +62,8 @@ export async function generateReport(data:Dataset,options:ReportOptions,context:
  const columnStyles=Object.fromEntries(widths.map((cellWidth,index)=>[index,{cellWidth}]));
  const rows=(rooms:Room[])=>rooms.map(room=>{
   const allocation=room.allocation,label=data.labels.find(l=>l.id===allocation?.labelId);
-  const occupants=allocation?.headcountPending?'Headcount pending':allocation?[...allocation.names,...(allocation.unnamed?['+'+allocation.unnamed+' unnamed guests']:[])].join('\n'):'-';
-  const values=[room.number,room.special||room.type,statusOf(room),allocation?.group||'-',data.guests.find(g=>g.id===allocation?.guestGroupId)?.name||'-',allocation?allocation.checkIn+' to '+allocation.checkOut:'-',label?.name||'-',occupants,allocation?.headcountPending?'Pending':`${countOf(allocation)} / ${room.capacity}`,String(allocation?.arrived||0)];
+  const occupants=allocation?.headcountPending?'Guest count unknown':allocation?[...allocation.names,...(allocation.unnamed?['+'+allocation.unnamed+' unnamed guests']:[])].join('\n'):'-';
+  const values=[room.number,room.special||room.type,stayStatus(statusOf(room)),allocation?.group||'-',data.guests.find(g=>g.id===allocation?.guestGroupId)?.name||'-',allocation?stayDates(allocation.checkIn,allocation.checkOut):'-',label?.name||'-',occupants,allocation?.headcountPending?'Unknown':`${countOf(allocation)} / ${room.capacity}`,String(allocation?.arrived||0)];
   if(options.includeContact)values.push(allocation?.contact||'-');
   if(options.includeNotes)values.push(allocation?.notes||'-');
   return values;
@@ -81,7 +82,7 @@ export async function generateReport(data:Dataset,options:ReportOptions,context:
    styles:{font:'helvetica',fontSize:7.3,cellPadding:2.8,textColor:ink,lineColor:[233,226,217],lineWidth:0.15,overflow:'linebreak',valign:'top'},
    headStyles:{fillColor:wine,textColor:[255,250,246],fontStyle:'bold',fontSize:7.2},alternateRowStyles:{fillColor:[250,248,244]},bodyStyles:{fillColor:[255,255,255]},
    willDrawPage:()=>{if(!firstTablePage){pageHeader();doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(...wine);doc.text(doc.splitTextToSize(areaName+' (continued)',width).slice(0,1),margin,32);}firstTablePage=false;},
-   didParseCell:cell=>{if(cell.section==='body'&&cell.column.index===2){const status=String(cell.cell.raw);cell.cell.styles.textColor=status==='Available'?[91,129,100]:status==='Allotted'?[163,124,58]:[93,131,161];cell.cell.styles.fontStyle='bold';}}
+   didParseCell:cell=>{if(cell.section==='body'&&cell.column.index===2){const status=String(cell.cell.raw);cell.cell.styles.textColor=status==='Available'?[91,129,100]:status==='Reserved'?[163,124,58]:[93,131,161];cell.cell.styles.fontStyle='bold';}}
   });
   y=(doc as typeof doc&{lastAutoTable:{finalY:number}}).lastAutoTable.finalY+12;
  }

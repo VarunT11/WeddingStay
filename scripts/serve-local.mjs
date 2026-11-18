@@ -9,7 +9,7 @@ let key,cert,hostname;
 try{[key,cert,hostname]=await Promise.all([readFile(path.join(certificateDirectory,'server-key.pem')),readFile(path.join(certificateDirectory,'server.pem')),readFile(path.join(certificateDirectory,'hostname.txt'),'utf8')]);}
 catch{console.error('Run npm run setup:https first. Certificates are stored outside the repository.');process.exit(1);}
 try{await stat(path.join(directory,'index.html'));}catch{console.error('Production build missing. Run npm run local to build and serve.');process.exit(1);}
-const types={'.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.webmanifest':'application/manifest+json','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon','.woff2':'font/woff2'};
+const types={'.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.webmanifest':'application/manifest+json','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.ico':'image/x-icon','.woff2':'font/woff2'};
 const server=https.createServer({key,cert},async(req,res)=>{
  res.setHeader('X-Content-Type-Options','nosniff');
  res.setHeader('Referrer-Policy','same-origin');

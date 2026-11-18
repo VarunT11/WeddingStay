@@ -1,0 +1,51 @@
+.wedding-dashboard .page-heading { align-items: flex-start; }
+.wedding-dashboard .page-heading > div:first-child { min-width: 0; }
+.wedding-dashboard h1 { overflow-wrap: anywhere; }
+.wedding-dashboard .eyebrow { color: #765b64; }
+.wedding-dashboard .page-description { font-size: 14px; color: #665c54; }
+.wedding-dashboard .page-description strong { font-weight: 600; }
+.wedding-dashboard .dashboard-actions { display: flex; flex-wrap: wrap; gap: 10px; flex-shrink: 0; justify-content: flex-end; }
+.wedding-dashboard .dashboard-actions .button { min-height: 44px; font-size: 13px; }
+.wedding-dashboard .metric-top { font-size: 13px; color: #62564f; gap: 8px; line-height: 1.5; }
+.wedding-dashboard .metric-bottom { font-size: 12px; color: #6d6259; line-height: 1.6; gap: 8px; }
+.wedding-dashboard .inventory-hint,
+.wedding-dashboard .section-heading p,
+.wedding-dashboard .planning-empty { font-size: 13px; color: #6d6259; line-height: 1.7; }
+.wedding-dashboard .dashboard-count-note { margin-top: 14px; }
+.wedding-dashboard .text-link { font-size: 13px; min-height: 44px; }
+.wedding-dashboard .operations-row small { font-size: 12px; color: #6d6259; line-height: 1.7; }
+.wedding-dashboard .dashboard-event-summary { display: block; padding: 24px; }
+.wedding-dashboard .event-summary-heading { display: flex; align-items: center; gap: 12px; color: var(--wine); }
+.wedding-dashboard .event-summary-heading h3 { flex: 1; color: #68463d; line-height: 1.4; }
+.wedding-dashboard .dashboard-event-summary .event-summary-date { margin: 16px 0 3px; font-size: 14px; font-weight: 600; color: #544941; }
+.wedding-dashboard .dashboard-event-summary .event-summary-venue { margin: 0; font-size: 13px; color: #6d6259; }
+.wedding-dashboard .event-confirmed-total { display: flex; align-items: baseline; flex-wrap: wrap; gap: 9px; margin-top: 22px; color: #62564f; font-size: 13px; }
+.wedding-dashboard .event-confirmed-total strong { color: var(--wine); font: 34px/1.2 Georgia,serif; }
+.wedding-dashboard .dashboard-event-summary .event-count-pending { padding: 10px 12px; margin: 12px 0 0; font-size: 12px; line-height: 1.7; color: #77551b; background: #fff5df; border-radius: 6px; }
+.wedding-dashboard .event-group-counts { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; border-top: 1px solid var(--line); padding-top: 18px; margin: 20px 0 0; }
+.wedding-dashboard .event-group-counts dt { font-size: 12px; line-height: 1.5; color: #6d6259; }
+.wedding-dashboard .event-group-counts dd { font-size: 18px; font-weight: 600; color: #544941; margin: 5px 0 0; }
+.night-grid .night-card > p { font-size: 13px; color: #6d6259; }
+.night-grid .night-card-heading { color: #765b64; }
+.night-grid .night-card h2 { color: #68463d; }
+.night-grid .night-counts span { font-size: 12px; color: #6d6259; overflow-wrap: anywhere; }
+.night-grid .night-counts strong { color: #68463d; }
+.night-status-badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.night-status-badge { display: inline-flex; align-items: center; padding: 7px 10px; border: 1px solid; border-radius: 6px; font-size: 12px; font-weight: 600; line-height: 1.5; }
+.night-status-badge.shortfall { background: #fbeceb; color: #923e36; border-color: #e6c2bd; }
+.night-status-badge.inventory-missing { background: #fff5df; color: #77551b; border-color: #e5cfa5; }
+@media (max-width: 1150px) {
+ .wedding-dashboard .page-heading { flex-wrap: wrap; }
+ .wedding-dashboard .dashboard-actions { justify-content: flex-start; }
+}
+@media (max-width: 640px) {
+ .wedding-dashboard .dashboard-actions { margin-top: 18px; }
+ .wedding-dashboard .dashboard-actions .button { flex: 1; padding: 10px 12px; }
+ .wedding-dashboard .metric-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+ .wedding-dashboard .metric-top { font-size: 12px; align-items: flex-start; }
+ .wedding-dashboard .metric-bottom { font-size: 12px; }
+ .wedding-dashboard .dashboard-event-summaries { grid-template-columns: minmax(0,1fr); }
+ .wedding-dashboard .dashboard-event-summary { padding: 18px; }
+ .wedding-dashboard .section-heading { gap: 12px; flex-wrap: wrap; }
+ .night-grid .night-counts { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px 12px; }
+}

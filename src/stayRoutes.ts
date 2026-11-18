@@ -1,16 +1,19 @@
 import {isDate,type Dataset,type StayAllocation} from './model';
 export const nightPath=(date:string)=>`/stays/night/${date}`;
 export const roomsPath=(date:string)=>`${nightPath(date)}/rooms`;
+export const managePropertyPath=(id:string)=>`/stays/accommodation/${encodeURIComponent(id)}`;
 export function allocationPath(allocation:StayAllocation,currentDate?:string) {
  const date=currentDate&&allocation.checkIn<=currentDate&&currentDate<allocation.checkOut?currentDate:allocation.checkIn;
  return roomsPath(date)+'?'+new URLSearchParams({room:allocation.roomId,allocation:allocation.id});
 }
 export const propertyPath=(date:string,id:string)=>`${nightPath(date)}/properties/${encodeURIComponent(id)}`;
 export const areaPath=(date:string,propertyId:string,areaId:string)=>`${propertyPath(date,propertyId)}/areas/${encodeURIComponent(areaId)}`;
-export type StayRoute={kind:'overview'|'accommodation'|'night'|'rooms'|'property'|'area'|'unknown';date?:string;propertyId?:string;areaId?:string};
+export type StayRoute={kind:'overview'|'accommodation'|'manage-property'|'night'|'rooms'|'property'|'area'|'unknown';date?:string;propertyId?:string;areaId?:string};
 export function parseStayRoute(path:string):StayRoute {
  if(path==='/stays')return {kind:'overview'};
  if(path==='/stays/accommodation')return {kind:'accommodation'};
+ const managed=path.match(/^\/stays\/accommodation\/([^/]+)$/);
+ if(managed){try{return {kind:'manage-property',propertyId:decodeURIComponent(managed[1])};}catch{return {kind:'unknown'};}}
  const rooms=path.match(/^\/stays\/night\/([^/]+)\/rooms$/);
  if(rooms&&isDate(rooms[1]))return {kind:'rooms',date:rooms[1]};
  const match=path.match(/^\/stays\/night\/([^/]+)(?:\/properties\/([^/]+)(?:\/areas\/([^/]+))?)?$/);

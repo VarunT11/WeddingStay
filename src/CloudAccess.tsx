@@ -1,8 +1,9 @@
+import {AppLogo} from './AppLogo';
 import {Fragment,createContext,useContext,useEffect,useRef,useState,type ReactNode} from 'react';
 import {useLocation,useNavigate} from 'react-router-dom';
 import {onAuthStateChanged,type User} from 'firebase/auth';
 import {onSnapshot} from 'firebase/firestore';
-import {Cloud,Flower2,LogOut,Upload} from 'lucide-react';
+import {LogOut,Upload} from 'lucide-react';
 import {auth,cloudError,firebaseConfigured,firebaseSignOut,googleSignIn,weddingId} from './firebase';
 import {initializeWedding,membershipRef,watchWedding,type CloudSnapshot} from './cloudStore';
 import {parseDataset,serializeDataset,exportFilename} from './transfer';
@@ -48,10 +49,10 @@ export function CloudAccess({children}:{children:ReactNode}){
 }
 function CloudWorkspace({snapshot,children}:{snapshot:CloudSnapshot;children:ReactNode}){
  const previous=useRef(snapshot.datasetVersion),[replaced,setReplaced]=useState(false),location=useLocation(),navigate=useNavigate();
- useEffect(()=>{if(previous.current===snapshot.datasetVersion)return;previous.current=snapshot.datasetVersion;setReplaced(true);const params=new URLSearchParams(location.search);for(const key of ['room','guest','event','bulk'])params.delete(key);void navigate({pathname:location.pathname,search:params.toString()},{replace:true});},[snapshot.datasetVersion,location.pathname,location.search,navigate]);
+ useEffect(()=>{if(previous.current===snapshot.datasetVersion)return;previous.current=snapshot.datasetVersion;setReplaced(true);const params=new URLSearchParams(location.search);for(const key of ['room','guest','event','bulk','accommodationEdit'])params.delete(key);void navigate({pathname:location.pathname,search:params.toString()},{replace:true});},[snapshot.datasetVersion,location.pathname,location.search,navigate]);
  return <>{replaced&&<div className="cloud-replacement-notice" role="alert"><span>The owner replaced the shared dataset. Open forms were closed; please reopen records before editing.</span><button className="quiet-button" onClick={()=>setReplaced(false)}>Dismiss</button></div>}<Fragment key={snapshot.datasetVersion||'legacy'}>{children}</Fragment></>;
 }
-function AccessPage({title,children}:{title:string;children?:ReactNode}){return <main className="access-page"><section className="access-card"><div className="access-brand"><Flower2 size={30}/><span>WeddingStay</span></div><Cloud className="access-cloud" size={28}/><h1>{title}</h1>{children}</section></main>;}
+function AccessPage({title,children}:{title:string;children?:ReactNode}){return <main className="access-page"><section className="access-card"><div className="access-brand wedding-access-brand"><AppLogo variant="full"/><span>WeddingStay</span></div><h1>{title}</h1>{children}</section></main>;}
 function InitializeCloud({status}:{status:string}){
  const [candidate,setCandidate]=useState<Dataset|null>(null),[filename,setFilename]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false),[confirm,setConfirm]=useState(false),[progress,setProgress]=useState('');const file=useRef<HTMLInputElement>(null);
  function prepare(text:string,name:string){try{setCandidate(parseDataset(text));setFilename(name);setError('');}catch(cause){setCandidate(null);setError(cloudError(cause));}}

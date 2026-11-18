@@ -1,16 +1,29 @@
-import {ArrowRight,CalendarDays} from 'lucide-react';
+import {WeddingArt,WeddingFlower} from './WeddingArt';
+import {stayDates} from './StayUI';
+import {ArrowRight} from 'lucide-react';
 import {countOf,overdueStays,propertyForRoom,type Dataset,type StayAllocation,type WeddingEvent} from './data';
 import {operationsForDate} from './planning';
 import {invitationSummary} from './management';
 import {Link} from './navigation';
 import {allocationPath,roomsPath} from './stayRoutes';
 
-export function EventCards({data,events}:{data:Dataset;events:WeddingEvent[]}) {
- return <div className="dashboard-event-list">{events.length?events.map(e=>{const s=invitationSummary(data,data.invitations.filter(i=>i.eventId===e.id));return <Link className="dashboard-event" key={e.id} to={'/events/'+encodeURIComponent(e.id)}><CalendarDays size={20}/><div><h3>{e.name}</h3><p>{new Date(e.date+'T12:00:00').toLocaleDateString(undefined,{day:'numeric',month:'long',year:'numeric'})}{e.time?' · '+e.time:''} · {e.location||'Location to follow'}</p><small>{s.groups} groups invited · {s.invited} known invited guests · {s.unknown} unknown counts</small><small>{s.confirmed} confirmed · {s.pending} pending · {s.declined} declined</small><small>{s.confirmedGuests} known confirmed guests · {s.confirmedUnknown} confirmed counts pending</small></div><ArrowRight size={15}/></Link>;}):<p className="planning-empty">No events scheduled.</p>}</div>;
+export function EventCards({data,events,variant='default'}:{data:Dataset;events:WeddingEvent[];variant?:'default'|'dashboard'}) {
+ if(variant==='dashboard')return <div className="dashboard-event-list dashboard-event-summaries">{events.length?events.map(event=>{
+  const summary=invitationSummary(data,data.invitations.filter(invitation=>invitation.eventId===event.id));
+  return <Link className="dashboard-event dashboard-event-summary" key={event.id} to={'/events/'+encodeURIComponent(event.id)}>
+   <div className="event-summary-heading"><WeddingFlower/><h3>{event.name}</h3><ArrowRight size={18}/></div>
+   <p className="event-summary-date">{new Date(event.date+'T12:00:00').toLocaleDateString(undefined,{day:'numeric',month:'long',year:'numeric'})}{event.time?' · '+event.time:''}</p>
+   <p className="event-summary-venue">{event.location||'Location to follow'}</p>
+   <div className="event-confirmed-total"><strong>{summary.confirmedGuests}</strong><span>{summary.confirmedUnknown?'Confirmed guests with recorded counts':'Confirmed guests'}</span></div>
+   {summary.confirmedUnknown>0&&<p className="event-count-pending">{summary.confirmedUnknown} confirmed {summary.confirmedUnknown===1?'group still needs a headcount':'groups still need headcounts'}. The total above is incomplete.</p>}
+   <dl className="event-group-counts">{[['Groups invited',summary.groups],['Groups confirmed',summary.confirmed],['Groups pending',summary.pending],['Groups declined',summary.declined]].map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+  </Link>;
+ }):<div className="planning-empty wedding-planning-empty"><WeddingArt kind="celebration" className="wedding-empty-art"/><p>No events scheduled.</p></div>}</div>;
+ return <div className="dashboard-event-list">{events.length?events.map(e=>{const s=invitationSummary(data,data.invitations.filter(i=>i.eventId===e.id));return <Link className="dashboard-event" key={e.id} to={'/events/'+encodeURIComponent(e.id)}><WeddingFlower/><div><h3>{e.name}</h3><p>{new Date(e.date+'T12:00:00').toLocaleDateString(undefined,{day:'numeric',month:'long',year:'numeric'})}{e.time?' · '+e.time:''} · {e.location||'Location to follow'}</p><small>{s.groups} groups invited · {s.invited} known invited guests · {s.unknown} unknown counts</small><small>{s.confirmed} confirmed · {s.pending} pending · {s.declined} declined</small><small>{s.confirmedGuests} known confirmed guests · {s.confirmedUnknown} confirmed counts pending</small></div><ArrowRight size={15}/></Link>;}):<div className="planning-empty wedding-planning-empty"><WeddingArt kind="celebration" className="wedding-empty-art"/><p>No events scheduled.</p></div>}</div>;
 }
 function StayRow({data,stay}:{data:Dataset;stay:StayAllocation}) {
  const room=data.rooms.find(r=>r.id===stay.roomId);
- return <Link className="operations-row" to={allocationPath(stay,data.viewDate)}><span><strong>{stay.group||data.guests.find(g=>g.id===stay.guestGroupId)?.name||'Your guests'}</strong><small>{room?propertyForRoom(data,room)?.name:''} · Room {room?.number||'Unknown'} · {stay.headcountPending?'Headcount pending':countOf(stay)+' assigned'}</small><small>{stay.lifecycle==='completed'?'Checked out':stay.checkedIn?stay.arrived+' arrived':'Awaiting check-in'} · {stay.checkIn} → {stay.checkOut}</small></span><ArrowRight size={15}/></Link>;
+ return <Link className="operations-row" to={allocationPath(stay,data.viewDate)}><span><strong>{stay.group||data.guests.find(g=>g.id===stay.guestGroupId)?.name||'Your guests'}</strong><small>{room?propertyForRoom(data,room)?.name:''} · Room {room?.number||'Unknown'} · {stay.headcountPending?'Guest count unknown':countOf(stay)+' assigned'}</small><small>{stay.lifecycle==='completed'?'Checked out':stay.checkedIn?stay.arrived+' arrived':'Awaiting check-in'} · {stayDates(stay.checkIn,stay.checkOut)}</small></span><ArrowRight size={15}/></Link>;
 }
 export function OverdueAttention({data}:{data:Dataset}) {
  const overdue=overdueStays(data);
@@ -21,7 +34,7 @@ export function DashboardExtras({data}:{data:Dataset}) {
  const booked=data.rooms.filter(r=>r.booked!==false||r.overdue);
  const assigned=booked.reduce((sum,r)=>sum+(r.allocation?countOf(r.allocation):0),0),arrived=booked.reduce((sum,r)=>sum+(r.allocation?.arrived||0),0);
  return <section className="dashboard-operations">
- <section className="panel operations-panel"><h3>Arrival progress</h3><p>{arrived} of {assigned} known assigned occupants arrived</p><div className="arrival-track"><span style={{width:(assigned?arrived/assigned*100:0)+'%'}}/></div><p className="inventory-hint">{assigned-arrived} awaiting arrival · {booked.reduce((sum,r)=>sum+r.capacity,0)} total room capacity · {booked.filter(r=>r.allocation?.headcountPending).length} headcounts pending</p></section>
+ <section className="panel operations-panel"><h3>Arrival progress</h3><p>{arrived} of {assigned} known assigned occupants arrived</p><div className="arrival-track"><span style={{width:(assigned?arrived/assigned*100:0)+'%'}}/></div><p className="inventory-hint">{assigned-arrived} awaiting arrival · {booked.reduce((sum,r)=>sum+r.capacity,0)} total room capacity · {booked.filter(r=>r.allocation?.headcountPending).length} guest counts unknown</p></section>
  <div className="section-heading"><h2>Events on this date</h2></div><EventCards data={data} events={operational.events}/>
  <div className="operations-columns"><section className="panel operations-panel"><h3>Scheduled arrivals <span>{operational.arrivals.length}</span></h3><p className="inventory-hint">{operational.awaiting.length} stays still awaiting check-in. Scheduled arrivals include stays already checked in or completed.</p>{operational.arrivals.length?operational.arrivals.map(stay=><StayRow key={stay.id} data={data} stay={stay}/>):<p className="inventory-hint">No check-ins scheduled.</p>}</section><section className="panel operations-panel"><h3>Scheduled departures <span>{operational.departures.length}</span></h3><p className="inventory-hint">Planned checkout dates; actual checkout is recorded separately.</p>{operational.departures.length?operational.departures.map(stay=><StayRow key={stay.id} data={data} stay={stay}/>):<p className="inventory-hint">No checkouts scheduled.</p>}</section></div>
  <Link className="text-link" to={roomsPath(date)}>Browse this night's rooms<ArrowRight size={15}/></Link>

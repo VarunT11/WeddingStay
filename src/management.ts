@@ -11,6 +11,11 @@ export function saveGuest(data:Dataset,guest:GuestGroup):Dataset {
   const next=stamped({...guest,name,members,category:guest.category.trim(),contact:guest.contact.trim(),notes:guest.notes.trim()},data.guests.find(g=>g.id===guest.id));
   return normalizeData({...data,guests:data.guests.some(g=>g.id===next.id)?data.guests.map(g=>g.id===next.id?next:g):[...data.guests,next]});
 }
+export function updateGuestAccommodation(data:Dataset,id:string,changes:Pick<GuestGroup,'needsAccommodation'|'headcount'>):Dataset {
+ const guest=data.guests.find(item=>item.id===id);
+ if(!guest)throw new Error('This guest group no longer exists. Close the editor and review the latest guest list.');
+ return saveGuest(data,{...guest,...changes});
+}
 export function saveCategory(data:Dataset,name:string,id:string=crypto.randomUUID()):Dataset {
  const trimmed=name.trim();if(!trimmed)throw new Error('Enter a category name.');
  if(data.guestCategories.some(c=>c.id!==id&&c.name.toLowerCase()===trimmed.toLowerCase()))throw new Error('This category already exists.');

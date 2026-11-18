@@ -1,6 +1,6 @@
-import {collection,doc,getDocFromServer,onSnapshot,runTransaction,serverTimestamp,writeBatch,type Unsubscribe} from 'firebase/firestore';
+import {collection,doc,runTransaction,serverTimestamp,writeBatch} from 'firebase/firestore';
 import {auth,database,weddingId} from './firebase';
-import {emptyDataset,normalizeData,storedData,validateData,type Dataset} from './data';
+import {storedData,validateData,type Dataset} from './data';
 
 export const recordKinds=['guestCategories','guests','events','invitations','properties','areas','rooms','allocations','requirements','labels','history'] as const;
 type Kind=typeof recordKinds[number];
@@ -15,43 +15,6 @@ const datasetRoot=(version?:string)=>version?doc(root(),'versions',version):root
 
 export function replacementPreview(before:Dataset,next:Dataset){
  return recordKinds.map(kind=>{const old=records(before,kind),current=records(next,kind);return {kind,current:old.size,next:current.size,added:[...current.keys()].filter(id=>!old.has(id)).length,changed:[...current].filter(([id,value])=>old.has(id)&&json(old.get(id))!==json(value)).length,removed:[...old.keys()].filter(id=>!current.has(id)).length};});
-}
-
-// Head collection revisions act as a barrier: never render half of a multi-collection save.
-export function watchWedding(onData:(snapshot:CloudSnapshot)=>void,onState:(state:'empty'|'initializing'|'online'|'offline')=>void,onError:(error:unknown)=>void):Unsubscribe {
- let head:CloudHead|null=null,headOnline=false,stopped=false,subscribedVersion:string|undefined;
- let recordSubscriptions:Unsubscribe[]=[];
- let generation=0;
- const rows=new Map<Kind,{values:{id:string}[];revision:number;online:boolean}>();
- function emit(){
-  if(stopped||!head)return;
-  if(head.state!=='ready'){onState(head.state==='initializing'?'initializing':'empty');return;}
-  for(const kind of recordKinds){const entry=rows.get(kind);if(!entry||entry.revision!==(head.collectionRevisions?.[kind]||0))return;}
-  const data:Dataset={...emptyDataset(),version:3,wedding:head.wedding,createdAt:head.createdAt,updatedAt:typeof head.updatedAt==='string'?head.updatedAt:new Date().toISOString(),referenceData:head.referenceData};
-  for(const kind of recordKinds)(data[kind] as unknown)=rows.get(kind)!.values;
-  try{validateData(data);if(headOnline&&[...rows.values()].every(row=>row.online)){onData({data:normalizeData(data),revision:head.revision,datasetVersion:head.activeVersion,clientSchema:head.clientSchema});onState('online');}else onState('offline');}catch(error){onError(error);}
- }
- function acceptHead(value:CloudHead,online:boolean){
-  if(stopped||(head&&value.revision<head.revision))return;head=value;headOnline=online;
-  if(!recordSubscriptions.length||subscribedVersion!==head.activeVersion){
-   subscribedVersion=head.activeVersion;generation++;const current=generation;
-   recordSubscriptions.forEach(stop=>stop());recordSubscriptions=[];rows.clear();onState('offline');
-   for(const kind of recordKinds)recordSubscriptions.push(onSnapshot(collection(datasetRoot(subscribedVersion),kind),{includeMetadataChanges:true},snapshot=>{
-    if(stopped||generation!==current)return;
-    const values:{id:string}[]=[];let revision=0;
-    snapshot.forEach(item=>{const entry=item.data();revision=Math.max(revision,entry.revision||0);if(!entry.deleted)values.push(entry.data);});
-    rows.set(kind,{values,revision,online:!snapshot.metadata.fromCache&&!snapshot.metadata.hasPendingWrites});emit();
-   },async error=>{
-    if(stopped||generation!==current)return;
-    // Old subscriptions can lose permission before the root listener receives activation.
-    try{const latest=await getDocFromServer(root());if(stopped||generation!==current)return;const next=latest.data() as CloudHead|undefined;if(next&&next.activeVersion!==subscribedVersion){acceptHead(next,true);return;}}catch{/* Report real access/network errors below. */}
-    if(!stopped&&generation===current)onError(error);
-   }));
-  }
-  emit();
- }
- const stopHead=onSnapshot(root(),{includeMetadataChanges:true},snapshot=>{if(!snapshot.exists()){if(!snapshot.metadata.fromCache)onState('empty');return;}acceptHead(snapshot.data() as CloudHead,!snapshot.metadata.fromCache&&!snapshot.metadata.hasPendingWrites);},onError);
- return ()=>{stopped=true;stopHead();recordSubscriptions.forEach(stop=>stop());};
 }
 
 export async function commitWedding(before:CloudSnapshot,next:Dataset):Promise<CloudSnapshot>{

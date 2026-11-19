@@ -14,6 +14,7 @@ import {sameScope,type WeddingScope} from './weddingScope';
 import {isAccessRevoked,verifyWeddingAccess,watchWeddingAccess} from './weddingAccess';
 import {migrateOfflineWorkspace,offlineEntry,localWorkspaceWeddingIds} from './offlineWorkspace';
 import {WeddingDirectory,DirectoryPage,purgeWedding} from './WeddingDirectory';
+import {rememberOpenedWedding,forgetOpenedWedding} from './weddingSelection';
 import './cloud-sync.css';
 
 type Access={scope:WeddingScope;user:User;role:CloudRole;snapshot:CloudSnapshot;online:boolean;canEdit:boolean;workMode:'live'|'offline';offline:ReturnType<typeof useOfflineWorkspace>;workOffline:()=>Promise<void>;status:SyncStatus;lastSyncedAt:string|null;cacheWarning:string;diagnostics:SyncDiagnostics;retryConnection:()=>void;reportError:(error:unknown)=>void;commit:(before:CloudSnapshot,next:Dataset)=>Promise<CloudSnapshot>;exportCopy:()=>void;signOut:()=>Promise<void>;chooseWedding:()=>void;permissionVerified:boolean};
@@ -47,6 +48,7 @@ function WeddingAccess({scope,user,onChoose,onLogout,children}:{scope:WeddingSco
   if(!mounted.current)return;permission.current=false;sync.current?.stop();sync.current=null;setPermissionVerified(false);setStatus(cloudCode(cause)==='resource-exhausted'?'quota':'error');setError(cloudError(cause));
  }
  async function revoke(){
+  forgetOpenedWedding(scope);
   denied.current=true;permission.current=false;sync.current?.stop();sync.current=null;snapshotRef.current=null;
   if(mounted.current){setPermissionVerified(false);setSnapshot(null);setRole(null);setStatus('denied');setError('Your wedding access is no longer active. Local copies have been removed.');setExit(null);}
   try{await offline.revoke();await purgeWedding(scope);}catch{if(mounted.current)setError('Access revoked. Local storage cleanup could not finish; clear this site’s storage before sharing this device.');}
@@ -88,6 +90,9 @@ function WeddingAccess({scope,user,onChoose,onLogout,children}:{scope:WeddingSco
  async function signOut(){if(offline.busy||writing.current||hasOpenForm()){setError('Close the current form before signing out.');return;}const ids=await localWorkspaceWeddingIds(scope.projectId,scope.uid);if(ids.length)setExit('logout');else await onLogout();}
  async function workOffline(){if(denied.current||!snapshot||!role)throw new Error('Wait for a complete authorised copy.');await offline.enter(snapshot,role,permission.current&&status==='online');}
  const activeSnapshot=offline.snapshot||snapshot,activeRole=role||offline.workspace?.role;
+ useEffect(()=>{
+  if(offline.ready&&activeSnapshot&&activeRole&&!denied.current&&auth?.currentUser?.uid===scope.uid&&(permissionVerified||!navigator.onLine))rememberOpenedWedding(scope);
+ },[scope,offline.ready,activeSnapshot,activeRole,permissionVerified]);
  if(status==='denied')return <DirectoryPage title="Access unavailable"><p>{error}</p><button className="button secondary" onClick={onChoose}>Your weddings</button><button className="quiet-button" onClick={()=>setRetry(value=>value+1)}>Recheck access</button></DirectoryPage>;
  if(!offline.ready)return <DirectoryPage title="Opening your saved workspace…"/>;
  if(activeSnapshot&&activeRole)return <CloudContext.Provider value={{scope,user,role:activeRole,snapshot:activeSnapshot,online:permissionVerified&&!offlineEnabled&&status==='online',canEdit:!denied.current&&(offlineEnabled?offline.editable&&!offline.busy&&!offline.review&&!offline.replaced:permissionVerified&&status==='online'),workMode:offlineEnabled?'offline':'live',offline,workOffline,status:offlineEnabled?'offline':status,lastSyncedAt:offlineEnabled?offline.workspace!.syncedAt:lastSyncedAt,cacheWarning,diagnostics,retryConnection:()=>setRetry(value=>value+1),reportError:cause=>void cloudFailure(cause),commit,exportCopy,signOut,chooseWedding,permissionVerified}}>

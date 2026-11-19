@@ -8,7 +8,6 @@ const app=firebaseConfigured?(getApps().length?getApp():initializeApp(config)):n
 export const auth=app?getAuth(app):null;
 // Deliberately use the default memory cache. Offline copies are isolated by account below.
 export const database=app?getFirestore(app):null;
-export const weddingId='main';
 export const firebaseProjectId=config.projectId||'unconfigured';
 export async function googleSignIn(){if(!auth)throw new Error('Firebase configuration is missing.');const provider=new GoogleAuthProvider();provider.setCustomParameters({prompt:'select_account'});await signInWithPopup(auth,provider);}
 export async function firebaseSignOut(){if(auth)await signOut(auth);}

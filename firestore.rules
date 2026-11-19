@@ -1,86 +1,287 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() { return request.auth != null; }
-    function member(wedding) { return get(/databases/$(database)/documents/weddings/$(wedding)/members/$(request.auth.uid)).data; }
-    function active(wedding) { return signedIn() && member(wedding).active == true && member(wedding).role in ['owner', 'coordinator']; }
-    function owner(wedding) { return active(wedding) && member(wedding).role == 'owner'; }
-    function head(wedding) { return get(/databases/$(database)/documents/weddings/$(wedding)).data; }
-    function afterHead(wedding) { return getAfter(/databases/$(database)/documents/weddings/$(wedding)).data; }
-    function recordCollection(kind) { return kind in ['guestCategories','guests','events','invitations','properties','areas','rooms','allocations','requirements','labels','history']; }
-    function versionOf(value) { return value.get('activeVersion', ''); }
-    function validRecord(id) {
-      return request.resource.data.keys().hasOnly(['data','deleted','revision','updatedBy','updatedAt'])
-        && request.resource.data.deleted is bool && request.resource.data.revision is int
-        && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time
-        && ((request.resource.data.deleted == true && request.resource.data.data == null)
-          || (request.resource.data.data is map && request.resource.data.data.id == id));
+    function signedIn() {
+      return request.auth != null;
     }
+
+    function member(wedding) {
+      return get(/databases/$(database)/documents/weddings/$(wedding)/members/$(request.auth.uid)).data;
+    }
+
+    function appOwner() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/appOwners/$(request.auth.uid))
+        && get(/databases/$(database)/documents/appOwners/$(request.auth.uid)).data.active == true;
+    }
+
+    function active(wedding) {
+      return appOwner()
+        || (signedIn()
+          && exists(/databases/$(database)/documents/weddings/$(wedding)/members/$(request.auth.uid))
+          && member(wedding).active == true
+          && member(wedding).role in ['owner', 'coordinator']);
+    }
+
+    function owner(wedding) {
+      return appOwner();
+    }
+
+    function validMembership(wedding, uid) {
+      let value = request.resource.data;
+      let index = getAfter(/databases/$(database)/documents/users/$(uid)/weddings/$(wedding)).data;
+
+      return value.keys().hasOnly([
+          'role', 'active', 'grantedBy', 'grantedAt', 'updatedBy', 'updatedAt'
+        ])
+        && value.role == 'coordinator'
+        && value.active is bool
+        && value.updatedBy == request.auth.uid
+        && value.updatedAt == request.time
+        && index.weddingId == wedding
+        && index.active == value.active
+        && index.updatedBy == request.auth.uid
+        && index.updatedAt == request.time;
+    }
+
+    match /appOwners/{uid} {
+      allow get: if signedIn() && (request.auth.uid == uid || appOwner());
+      allow list: if appOwner();
+      allow write: if false;
+    }
+
+    match /users/{uid} {
+      allow get: if signedIn() && (request.auth.uid == uid || appOwner());
+      allow list: if appOwner();
+
+      allow create, update: if signedIn()
+        && request.auth.uid == uid
+        && request.auth.token.email_verified == true
+        && request.resource.data.keys().hasOnly([
+          'displayName', 'email', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() > 0
+        && request.resource.data.displayName.size() <= 200
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.updatedAt == request.time
+        && (
+          (!exists(/databases/$(database)/documents/users/$(uid))
+            && request.resource.data.createdAt == request.time)
+          || (exists(/databases/$(database)/documents/users/$(uid))
+            && request.resource.data.createdAt == resource.data.createdAt)
+        );
+
+      allow delete: if false;
+
+      match /weddings/{wedding} {
+        allow get, list: if appOwner()
+          || (signedIn()
+            && request.auth.uid == uid
+            && resource.data.active == true);
+
+        allow create, update: if appOwner()
+          && request.resource.data.keys().hasOnly([
+            'weddingId', 'weddingName', 'active', 'updatedBy', 'updatedAt'
+          ])
+          && request.resource.data.weddingId == wedding
+          && request.resource.data.weddingName is string
+          && request.resource.data.weddingName.size() <= 200
+          && request.resource.data.active is bool
+          && request.resource.data.updatedBy == request.auth.uid
+          && request.resource.data.updatedAt == request.time
+          && getAfter(/databases/$(database)/documents/weddings/$(wedding)/members/$(uid)).data.active == request.resource.data.active
+          && getAfter(/databases/$(database)/documents/weddings/$(wedding)/members/$(uid)).data.updatedBy == request.auth.uid
+          && getAfter(/databases/$(database)/documents/weddings/$(wedding)/members/$(uid)).data.updatedAt == request.time;
+
+        allow delete: if false;
+      }
+    }
+
+    function head(wedding) {
+      return get(/databases/$(database)/documents/weddings/$(wedding)).data;
+    }
+
+    function afterHead(wedding) {
+      return getAfter(/databases/$(database)/documents/weddings/$(wedding)).data;
+    }
+
+    function recordCollection(kind) {
+      return kind in [
+        'guestCategories', 'guests', 'events', 'invitations',
+        'properties', 'areas', 'rooms', 'allocations',
+        'requirements', 'labels', 'history'
+      ];
+    }
+
+    function versionOf(value) {
+      return value.get('activeVersion', '');
+    }
+
+    function validRecord(id) {
+      return request.resource.data.keys().hasOnly([
+          'data', 'deleted', 'revision', 'updatedBy', 'updatedAt'
+        ])
+        && request.resource.data.deleted is bool
+        && request.resource.data.revision is int
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt == request.time
+        && (
+          (request.resource.data.deleted == true && request.resource.data.data == null)
+          || (request.resource.data.data is map && request.resource.data.data.id == id)
+        );
+    }
+
     function liveWrite(wedding, kind, version) {
-      return head(wedding).state == 'ready' && versionOf(head(wedding)) == version
+      return head(wedding).state == 'ready'
+        && versionOf(head(wedding)) == version
         && versionOf(afterHead(wedding)) == version
         && afterHead(wedding).revision == head(wedding).revision + 1
         && afterHead(wedding).updatedBy == request.auth.uid
         && request.resource.data.revision == afterHead(wedding).revision
         && afterHead(wedding).collectionRevisions[kind] == afterHead(wedding).revision;
     }
-    function staged(wedding, version) { return get(/databases/$(database)/documents/weddings/$(wedding)/versions/$(version)).data; }
+
+    function staged(wedding, version) {
+      return get(/databases/$(database)/documents/weddings/$(wedding)/versions/$(version)).data;
+    }
+
     match /weddings/{wedding} {
       allow get: if active(wedding);
-      allow list, delete: if false;
-      allow create: if owner(wedding) && request.resource.data.state == 'initializing' && request.resource.data.clientSchema == 3 && request.resource.data.revision == 0 && request.resource.data.updatedBy == request.auth.uid;
-      allow update: if active(wedding) && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && request.resource.data.clientSchema == 3 && resource.data.get('clientSchema', 0) <= 3 && request.resource.data.schemaRevision == request.resource.data.revision && (
-        (resource.data.state == 'ready' && request.resource.data.state == 'ready'
-          && request.resource.data.revision == resource.data.revision + 1
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['revision','clientSchema','schemaRevision','collectionRevisions','updatedAt','updatedBy']))
-        || (owner(wedding) && resource.data.state == 'ready' && request.resource.data.state == 'ready'
-          && request.resource.data.revision == resource.data.revision + 1
-          && versionOf(request.resource.data) != versionOf(resource.data)
-          && request.resource.data.previousVersion == (versionOf(resource.data) == '' ? 'legacy' : versionOf(resource.data))
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['activeVersion','previousVersion','clientSchema','schemaRevision','revision','collectionRevisions','wedding','version','referenceData','createdAt','updatedAt','updatedBy'])
-          && staged(wedding, request.resource.data.activeVersion).state == 'ready'
-          && staged(wedding, request.resource.data.activeVersion).createdBy == request.auth.uid
-          && staged(wedding, request.resource.data.activeVersion).baseRevision == resource.data.revision
-          && staged(wedding, request.resource.data.activeVersion).baseVersion == versionOf(resource.data))
-        || (owner(wedding) && resource.data.state != 'ready' && request.resource.data.state in ['initializing','ready']
-          && (resource.data.state != 'initializing' || request.resource.data.importHash == resource.data.importHash))
-      );
+      allow list: if appOwner();
+      allow delete: if false;
+
+      allow create: if owner(wedding)
+        && request.resource.data.state == 'initializing'
+        && request.resource.data.clientSchema == 4
+        && request.resource.data.revision == 0
+        && request.resource.data.updatedBy == request.auth.uid;
+
+      allow update: if active(wedding)
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.clientSchema == 4
+        && resource.data.get('clientSchema', 0) <= 4
+        && request.resource.data.schemaRevision == request.resource.data.revision
+        && (
+          (resource.data.state == 'ready'
+            && request.resource.data.state == 'ready'
+            && request.resource.data.revision == resource.data.revision + 1
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'revision', 'clientSchema', 'schemaRevision',
+              'collectionRevisions', 'updatedAt', 'updatedBy'
+            ]))
+          || (owner(wedding)
+            && resource.data.state == 'ready'
+            && request.resource.data.state == 'ready'
+            && request.resource.data.revision == resource.data.revision + 1
+            && versionOf(request.resource.data) != versionOf(resource.data)
+            && request.resource.data.previousVersion == (versionOf(resource.data) == '' ? 'legacy' : versionOf(resource.data))
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'activeVersion', 'previousVersion', 'clientSchema', 'schemaRevision',
+              'revision', 'collectionRevisions', 'wedding', 'version',
+              'referenceData', 'createdAt', 'updatedAt', 'updatedBy'
+            ])
+            && staged(wedding, request.resource.data.activeVersion).state == 'ready'
+            && staged(wedding, request.resource.data.activeVersion).createdBy == request.auth.uid
+            && staged(wedding, request.resource.data.activeVersion).baseRevision == resource.data.revision
+            && staged(wedding, request.resource.data.activeVersion).baseVersion == versionOf(resource.data))
+          || (owner(wedding)
+            && resource.data.state != 'ready'
+            && request.resource.data.state in ['initializing', 'ready']
+            && (resource.data.state != 'initializing'
+              || request.resource.data.importHash == resource.data.importHash))
+        );
+
       match /members/{uid} {
         allow get: if signedIn() && (request.auth.uid == uid || owner(wedding));
         allow list: if owner(wedding);
-        // Memberships are provisioned by the owner through the Firebase console.
-        allow write: if false;
-      }
-      match /{kind}/{id} {
-        allow read: if recordCollection(kind) && active(wedding) && (owner(wedding) || (head(wedding).state == 'ready' && versionOf(head(wedding)) == ''));
-        allow create, update: if recordCollection(kind) && active(wedding)
-          && validRecord(id)
-          && ((head(wedding).state == 'initializing' && owner(wedding) && request.resource.data.revision == 1)
-            || liveWrite(wedding, kind, ''))
-          && (kind != 'history' || !exists(/databases/$(database)/documents/weddings/$(wedding)/history/$(id)) || head(wedding).state == 'initializing');
+
+        allow create: if appOwner()
+          && exists(/databases/$(database)/documents/weddings/$(wedding))
+          && exists(/databases/$(database)/documents/users/$(uid))
+          && validMembership(wedding, uid)
+          && request.resource.data.grantedBy == request.auth.uid
+          && request.resource.data.grantedAt == request.time;
+
+        allow update: if appOwner()
+          && validMembership(wedding, uid)
+          && (
+            (resource.data.keys().hasAll(['grantedBy', 'grantedAt'])
+              && request.resource.data.grantedBy == resource.data.grantedBy
+              && request.resource.data.grantedAt == resource.data.grantedAt)
+            || (!resource.data.keys().hasAll(['grantedBy', 'grantedAt'])
+              && request.resource.data.grantedBy == request.auth.uid
+              && request.resource.data.grantedAt == request.time)
+          );
+
         allow delete: if false;
       }
+
+      match /{kind}/{id} {
+        allow read: if recordCollection(kind)
+          && active(wedding)
+          && (owner(wedding)
+            || (head(wedding).state == 'ready' && versionOf(head(wedding)) == ''));
+
+        allow create, update: if recordCollection(kind)
+          && active(wedding)
+          && validRecord(id)
+          && (
+            (head(wedding).state == 'initializing'
+              && owner(wedding)
+              && request.resource.data.revision == 1)
+            || liveWrite(wedding, kind, '')
+          )
+          && (kind != 'history'
+            || !exists(/databases/$(database)/documents/weddings/$(wedding)/history/$(id))
+            || head(wedding).state == 'initializing');
+
+        allow delete: if false;
+      }
+
       match /versions/{version} {
         allow read: if active(wedding) && (owner(wedding) || versionOf(head(wedding)) == version);
-        allow create: if owner(wedding) && head(wedding).state == 'ready'
-          && request.resource.data.keys().hasOnly(['state','baseRevision','baseVersion','createdBy','createdAt'])
-          && request.resource.data.state == 'uploading' && request.resource.data.createdBy == request.auth.uid
+
+        allow create: if owner(wedding)
+          && head(wedding).state == 'ready'
+          && request.resource.data.keys().hasOnly([
+            'state', 'baseRevision', 'baseVersion', 'createdBy', 'createdAt'
+          ])
+          && request.resource.data.state == 'uploading'
+          && request.resource.data.createdBy == request.auth.uid
           && request.resource.data.createdAt == request.time
           && request.resource.data.baseRevision == head(wedding).revision
           && request.resource.data.baseVersion == versionOf(head(wedding));
-        allow update: if owner(wedding) && resource.data.createdBy == request.auth.uid
-          && resource.data.state == 'uploading' && request.resource.data.state == 'ready'
+
+        allow update: if owner(wedding)
+          && resource.data.createdBy == request.auth.uid
+          && resource.data.state == 'uploading'
+          && request.resource.data.state == 'ready'
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['state']);
+
         allow delete: if false;
+
         match /{kind}/{id} {
-          allow read: if recordCollection(kind) && active(wedding) && (owner(wedding) || versionOf(head(wedding)) == version);
-          allow create, update: if recordCollection(kind) && active(wedding) && validRecord(id)
-            && ((owner(wedding) && staged(wedding, version).state == 'uploading'
+          allow read: if recordCollection(kind)
+            && active(wedding)
+            && (owner(wedding) || versionOf(head(wedding)) == version);
+
+          allow create, update: if recordCollection(kind)
+            && active(wedding)
+            && validRecord(id)
+            && (
+              (owner(wedding)
+                && staged(wedding, version).state == 'uploading'
                 && staged(wedding, version).createdBy == request.auth.uid
                 && request.resource.data.deleted == false
                 && request.resource.data.revision == staged(wedding, version).baseRevision + 1)
               || (liveWrite(wedding, kind, version)
-                && (kind != 'history' || !exists(/databases/$(database)/documents/weddings/$(wedding)/versions/$(version)/history/$(id)))));
+                && (kind != 'history'
+                  || !exists(/databases/$(database)/documents/weddings/$(wedding)/versions/$(version)/history/$(id))))
+            );
+
           allow delete: if false;
         }
       }

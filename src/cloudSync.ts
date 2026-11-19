@@ -1,5 +1,6 @@
 import {collection,doc,getDocFromServer,getDocsFromServer,onSnapshot,query,where} from 'firebase/firestore';
-import {database,weddingId} from './firebase';
+import {database} from './firebase';
+import {sameScope,weddingRef,type WeddingScope} from './weddingScope';
 import {emptyDataset,normalizeData,storedData,validateData,type Dataset} from './data';
 import {recordKinds,type CloudHead,type CloudSnapshot} from './cloudStore';
 
@@ -9,13 +10,14 @@ export const syncLabels:Record<SyncStatus,string>={checking:'Checking connection
 export const cloudCode=(error:unknown)=>String((error as {code?:unknown})?.code||'').replace(/^firestore\//,'');
 export const isTransientCloudError=(error:unknown)=>['unavailable','deadline-exceeded','aborted','internal','unknown'].includes(cloudCode(error));
 export type WeddingSync={stop:()=>void;acknowledge:(snapshot:CloudSnapshot)=>void};
-type Options={baseline?:CloudSnapshot;onData:(snapshot:CloudSnapshot)=>void;onState:(status:SyncStatus)=>void;onError:(error:unknown)=>void;onActivity:(change:Partial<SyncDiagnostics>)=>void};
+type Options={scope:WeddingScope;baseline?:CloudSnapshot;onData:(snapshot:CloudSnapshot)=>void;onState:(status:SyncStatus)=>void;onError:(error:unknown)=>void;onActivity:(change:Partial<SyncDiagnostics>)=>void};
 function headTime(value:unknown){if(typeof value==='string')return value;if(value&&typeof (value as {toDate?:unknown}).toDate==='function')return (value as {toDate:()=>Date}).toDate().toISOString();return new Date().toISOString();}
 
 // Only the head is listened to. Collection reads are bounded by a stable revision.
-export function createWeddingSync({baseline:initial,onData,onState,onError,onActivity}:Options):WeddingSync{
+export function createWeddingSync({scope,baseline:initial,onData,onState,onError,onActivity}:Options):WeddingSync{
  if(!database)throw new Error('Firebase configuration is missing.');
- const root=doc(database,'weddings',weddingId);
+ if(initial&&!sameScope(initial.scope,scope))throw new Error('The cached snapshot belongs to another wedding.');
+ const root=weddingRef(scope);
  let baseline=initial,head:CloudHead|undefined,stopped=false,running=false,headOnline=false;
  let timer:ReturnType<typeof setTimeout>|undefined,waitingAt:string|undefined;
  function headKey(value:CloudHead){return `${value.activeVersion||''}:${value.revision}:${value.clientSchema}`;}
@@ -28,7 +30,7 @@ export function createWeddingSync({baseline:initial,onData,onState,onError,onAct
    for(let attempt=0;attempt<3&&!stopped;attempt++){
     const target:CloudHead|undefined=head;
     if(!target||target.state!=='ready'||!headOnline)return;
-    if((target.clientSchema||0)>3)throw new Error('Update the app to open this newer wedding format. Your last complete copy is kept.');
+    if((target.clientSchema||0)>4)throw new Error('Update the app to open this newer wedding format. Your last complete copy is kept.');
     if(baseline&&baseline.datasetVersion===target.activeVersion&&baseline.revision>target.revision)return;
     if(baseline&&baseline.datasetVersion===target.activeVersion&&baseline.revision===target.revision&&baseline.clientSchema===target.clientSchema){onData(baseline);onState('online');return;}
     onState('syncing');
@@ -72,7 +74,7 @@ export function createWeddingSync({baseline:initial,onData,onState,onError,onAct
     if(head&&head.revision>target.revision)continue;
     if(baseline&&baseline.revision>target.revision)continue;
     validateData(data);
-    publish({data:normalizeData(data),revision:target.revision,datasetVersion:target.activeVersion,clientSchema:target.clientSchema});
+    publish({scope,data:normalizeData(data),revision:target.revision,datasetVersion:target.activeVersion,clientSchema:target.clientSchema});
     if(headOnline)onState('online');else onState('offline');
     return;
    }

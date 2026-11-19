@@ -1,3 +1,4 @@
+import {usePreferenceKey} from './weddingScope';
 import {useLayoutEffect,useRef,useState} from 'react';
 import {useLocation,useSearchParams} from 'react-router-dom';
 import {ArrowRight,BedDouble,CalendarDays,ChevronDown,FileDown,LayoutGrid,List,MapPin,Pencil,Plus,Search,SlidersHorizontal,Sparkles,Tag,TriangleAlert,Users,X} from 'lucide-react';
@@ -12,10 +13,11 @@ type Props={data:Dataset;rooms:Room[];areaId?:string;onAddRoom:()=>void;onEditAr
 type View='grid'|'list';
 const viewKey='weddingstay.roomBrowser.view';
 const compare=new Intl.Collator('en',{numeric:true,sensitivity:'base'});
-function savedView():View{try{return localStorage.getItem(viewKey)==='list'?'list':'grid';}catch{return 'grid';}}
+function savedView(key:string):View{try{return localStorage.getItem(key)==='list'?'list':'grid';}catch{return 'grid';}}
 function roomName(room:Room){return /^room\s/i.test(room.number)?room.number:'Room '+room.number;}
 export function RoomBrowser({data,rooms,areaId,onAddRoom,onEditArea,onManageLabels,onPdf}:Props){
- const [params,setParams]=useSearchParams(),location=useLocation(),navigate=useNavigate(),[view,setView]=useState<View>(savedView),[filtersOpen,setFiltersOpen]=useState(false);
+ const preferenceKey=usePreferenceKey(viewKey);
+ const [params,setParams]=useSearchParams(),location=useLocation(),navigate=useNavigate(),[view,setView]=useState<View>(()=>savedView(preferenceKey)),[filtersOpen,setFiltersOpen]=useState(false);
  const toolbar=useRef<HTMLDivElement>(null),results=useRef<HTMLDivElement>(null),resultTitle=useRef<HTMLHeadingElement>(null),previousRoom=useRef(params.get('room'));
  const opened=useRef<{id:string;y:number;signature:string}|null>(null),anchor=useRef<{id:string;top:number}|null>(null);
  const date=data.viewDate||data.wedding.defaultDate,fixedArea=data.areas.find(area=>area.id===areaId),propertyId=fixedArea?.propertyId||params.get('property')||'',chosenArea=areaId||params.get('area')||'';
@@ -53,7 +55,7 @@ export function RoomBrowser({data,rooms,areaId,onAddRoom,onEditArea,onManageLabe
   const top=toolbar.current?.getBoundingClientRect().bottom||0;
   const visible=Array.from(results.current?.querySelectorAll<HTMLElement>('[data-room-id]')||[]).find(element=>{const rect=element.getBoundingClientRect();return rect.bottom>Math.max(0,top)&&rect.top<window.innerHeight;});
   if(visible)anchor.current={id:visible.dataset.roomId!,top:visible.getBoundingClientRect().top};
-  setView(next);try{localStorage.setItem(viewKey,next);}catch{/* Keep the preference for this session. */}
+  setView(next);try{localStorage.setItem(preferenceKey,next);}catch{/* Keep the preference for this session. */}
  }
  function update(key:string,value:string){const next=new URLSearchParams(params);next.delete('room');next.delete('allocation');if(value)next.set(key,value);else next.delete(key);if(key==='property')next.delete('area');opened.current=null;setParams(next,{replace:true,preventScrollReset:true});}
  function clear(){const next=new URLSearchParams(params);for(const key of ['q','status','type','label','guestGroup','property','area','room','allocation'])next.delete(key);next.set('date',date);if(fixedArea)next.set('property',fixedArea.propertyId);opened.current=null;setParams(next,{replace:true,preventScrollReset:true});}

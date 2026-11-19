@@ -27,7 +27,7 @@ export function CloudReplacement({onBusyChange,disabled=false}:{onBusyChange:(bu
   if(running.current)return;
   if(disabled||!baseline||!candidate||!backedUp||!downloaded||stale||!cloud.online){setConfirm(false);setError('Reconnect and review the latest comparison and backup before replacing data.');return;}
   running.current=true;setConfirm(false);setBusy(true);onBusyChange(true);setError('');setProgress('Preparing a separate upload. Current data stays active…');
-  try{await replaceWedding(baseline,candidate,setProgress);setProgress('Replacement activated. Loading your new dataset…');}
+  try{await replaceWedding(cloud.scope,baseline,candidate,setProgress);setProgress('Replacement activated. Loading your new dataset…');}
   catch(cause){if((cause as {code?:string})?.code)cloud.reportError(cause);setError(cloudError(cause));setProgress('Replacement could not finish. Reconnect to check which dataset is active before retrying.');}
   finally{running.current=false;setBusy(false);onBusyChange(false);}
  }

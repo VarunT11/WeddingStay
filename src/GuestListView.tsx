@@ -1,3 +1,4 @@
+import {usePreferenceKey} from './weddingScope';
 import {useEffect,useLayoutEffect,useRef,useState,type RefObject} from 'react';
 import {List,Table2} from 'lucide-react';
 import './guest-mobile-view.css';
@@ -5,13 +6,14 @@ import './guest-mobile-view.css';
 export type GuestMobileView='matrix'|'list';
 type ListContext='master'|'event';
 const storageKey=(context:ListContext)=>'weddingstay.guestListMobileView.'+context;
-function readView(context:ListContext):GuestMobileView{
- try{const value=localStorage.getItem(storageKey(context));if(value==='matrix'||value==='list')return value;if(value==='cards')return 'list';}catch{/* Storage is optional. */}
+function readView(key:string):GuestMobileView{
+ try{const value=localStorage.getItem(key);if(value==='matrix'||value==='list')return value;if(value==='cards')return 'list';}catch{/* Storage is optional. */}
  return 'list';
 }
 export function useGuestMobileView(context:ListContext){
- const [views,setViews]=useState(()=>({master:readView('master'),event:readView('event')}));
- function changeView(view:GuestMobileView){setViews(previous=>({...previous,[context]:view}));try{localStorage.setItem(storageKey(context),view);}catch{/* Keep the selection for this session. */}}
+ const masterKey=usePreferenceKey(storageKey('master')),eventKey=usePreferenceKey(storageKey('event'));
+ const [views,setViews]=useState(()=>({master:readView(masterKey),event:readView(eventKey)}));
+ function changeView(view:GuestMobileView){setViews(previous=>({...previous,[context]:view}));try{localStorage.setItem(context==='master'?masterKey:eventKey,view);}catch{/* Keep the selection for this session. */}}
  return [views[context],changeView] as const;
 }
 export function useGuestListMobile(){

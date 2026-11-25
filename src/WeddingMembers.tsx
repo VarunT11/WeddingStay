@@ -4,11 +4,11 @@ import {UserPlus,Users} from 'lucide-react';
 import {database,cloudError} from './firebase';
 import {type WeddingScope,weddingRef} from './weddingScope';
 import {verifyWeddingAccess,setWeddingMember,repairWeddingMembers} from './weddingAccess';
-import {Confirm} from './dialogs';
+import {Confirm} from './dialogs'; import {useTasks} from './TaskProvider';
 
 type Person={uid:string;displayName:string;email:string};
 export function WeddingMembers({scope,weddingName,onBusyChange}:{scope:WeddingScope;weddingName:string;onBusyChange:(busy:boolean)=>void}){
- const [people,setPeople]=useState<Person[]>([]),[assigned,setAssigned]=useState<Person[]>([]),[owners,setOwners]=useState<string[]>([]),[adding,setAdding]=useState(false),[q,setQ]=useState(''),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[error,setError]=useState(''),[message,setMessage]=useState(''),[more,setMore]=useState(true),[change,setChange]=useState<{person:Person;active:boolean}|null>(null),[repair,setRepair]=useState(false);
+ const taskAccess=useTasks(); const [people,setPeople]=useState<Person[]>([]),[assigned,setAssigned]=useState<Person[]>([]),[owners,setOwners]=useState<string[]>([]),[adding,setAdding]=useState(false),[q,setQ]=useState(''),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[error,setError]=useState(''),[message,setMessage]=useState(''),[more,setMore]=useState(true),[change,setChange]=useState<{person:Person;active:boolean}|null>(null),[repair,setRepair]=useState(false);
  const cursor=useRef<QueryDocumentSnapshot<DocumentData>|null>(null),running=useRef(false),alive=useRef(true);
  function activity(value:boolean){running.current=value;setBusy(value);onBusyChange(value);}
  async function loadMembers(){
@@ -24,7 +24,7 @@ export function WeddingMembers({scope,weddingName,onBusyChange}:{scope:WeddingSc
   catch(cause){if(alive.current)setError(cloudError(cause));}finally{if(alive.current)activity(false);}
  }
  useEffect(()=>{alive.current=true;activity(true);void loadMembers().catch(cause=>{if(alive.current)setError(cloudError(cause));}).finally(()=>{if(alive.current){activity(false);setLoading(false);}});return()=>{alive.current=false;onBusyChange(false);};},[]);
- async function apply(){if(!change||running.current)return;activity(true);setError('');try{await setWeddingMember(scope,change.person.uid,weddingName,change.active);await loadMembers();if(alive.current){setMessage(change.active?'Member added.':'Access removed.');setChange(null);}}catch(cause){if(alive.current)setError(cloudError(cause));}finally{if(alive.current)activity(false);}}
+ async function apply(){if(!change||running.current)return;activity(true);setError('');try{await setWeddingMember(scope,change.person.uid,weddingName,change.active);await loadMembers();if(alive.current){setMessage(change.active?'Member added.':'Access removed.');setChange(null);taskAccess.refresh();}}catch(cause){if(alive.current)setError(cloudError(cause));}finally{if(alive.current)activity(false);}}
  const text=q.trim().toLowerCase(),candidates=people.filter(person=>!assigned.some(member=>member.uid===person.uid)&&[person.displayName,person.email,person.uid].some(value=>value.toLowerCase().includes(text)));
  return <section className="settings-panel" aria-busy={busy}><div className="settings-section-heading"><div><h2><Users size={20}/>Members</h2><p>Members can view and edit this wedding. App owners manage access.</p></div><button className="button primary" disabled={busy||loading||!!error} onClick={()=>{setAdding(!adding);if(!people.length&&!adding)void loadPeople();}}><UserPlus size={16}/>{adding?'Close user list':'Add members'}</button></div>
  {loading&&<p role="status">Loading members…</p>}

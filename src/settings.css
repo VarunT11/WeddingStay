@@ -1,0 +1,116 @@
+.settings-redesign { max-width: 1100px; margin: auto; }
+.settings-redesign>.page-heading { margin-bottom: 22px; }
+.settings-redesign>.page-heading h1 { font-size: 34px; }
+.settings-redesign>.page-heading .eyebrow { font-size: 9px; letter-spacing: 1.7px; margin-bottom: 10px; }
+.settings-redesign>.page-heading .page-description { font-size: 13px; margin-top: 12px; }
+.settings-redesign .settings-wedding-context { display: flex; align-items: center; gap: 12px; padding: 15px 18px; margin: 0; border: 1px solid #e9dfd1; border-radius: 12px; background: #fcfaf5; }
+.settings-redesign .settings-wedding-symbol { display: grid; place-items: center; width: 37px; height: 37px; border-radius: 10px; background: #f0e5e0; color: #895e58; flex-shrink: 0; font: inherit; }
+.settings-redesign .settings-wedding-context>div { display: flex; flex-direction: column; gap: 5px; }
+.settings-redesign .settings-wedding-context strong { color: #6d4c40; font-size: 13px; }
+.settings-redesign .settings-wedding-context>div>span { display: flex; gap: 6px; align-items: center; color: #a08a76; font-size: 11px; }
+.settings-redesign .settings-wedding-context>div svg { width: 12px; height: 12px; }
+.settings-role-pill { margin-left: auto; padding: 6px 10px; background: #f0e8df; color: #9a7c62; border: 1px solid #e7d9c8; border-radius: 5px; font-size: 9px; white-space: nowrap; }
+.settings-layout { display: flex; flex-direction: column; gap: 24px; margin-top: 22px; }
+.settings-sidebar { border-bottom: 1px solid #e5dcd1; }
+.settings-sidebar nav { display: flex; align-items: stretch; gap: 26px; overflow-x: auto; scrollbar-width: thin; }
+.settings-sidebar button { display: flex; gap: 8px; align-items: center; padding: 15px 0; border-bottom: 2px solid transparent; color: #a08d7e; white-space: nowrap; font: inherit; }
+.settings-sidebar button strong { font-size: 11px; font-weight: 500; }
+.settings-sidebar button>svg { width: 15px; height: 15px; }
+.settings-sidebar button[aria-current=page] { border-bottom-color: #743346; color: #743346; }
+.settings-sidebar button[aria-current=page] strong { font-weight: 600; }
+.settings-mobile-picker { display: none; }
+.settings-content { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.settings-content .settings-panel { margin: 0; border: 1px solid #e9dfd2; background: #fffefa; border-radius: 14px; padding: 28px; box-shadow: 0 3px 14px #5b403003; }
+.settings-content .settings-panel h2 { font-size: 21px; font-family: Georgia,serif; font-weight: 400; letter-spacing: -.3px; color: #674b3e; margin: 0; }
+.settings-content .settings-panel h3 { font-size: 13px; font-weight: 550; color: #816149; }
+.settings-content .settings-panel p { color: #a18b77; font-size: 12px; line-height: 1.8; margin: 8px 0 16px; }
+.settings-content .settings-panel p.eyebrow { font-size: 8px; letter-spacing: 1.8px; color: #b39776; margin: 0 0 9px; }
+.settings-card-heading { display: flex; gap: 14px; align-items: center; padding-bottom: 22px; border-bottom: 1px solid #ede3d6; }
+.settings-card-heading p { margin: 6px 0 0!important; font-size: 11px!important; }
+.settings-card-icon { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid #e9dbc8; border-radius: 12px; color: #a78a61; background: #f9f2e7; }
+.settings-details-form { max-width: none; margin: 26px 0 0; }
+.settings-fields { display: grid; grid-template-columns: minmax(0,1.4fr) minmax(0,1fr); gap: 25px; max-width: 800px; }
+.settings-fields label { display: flex!important; flex-direction: column; gap: 10px!important; font-size: 11px!important; color: #947962; font-weight: 550; }
+.settings-fields input { width: 100%; min-height: 45px!important; margin: 0!important; font-size: 13px!important; padding: 12px 13px!important; border: 1px solid #e5d8c7!important; border-radius: 8px!important; background: white; color: #6d5442!important; }
+.settings-fields input:focus { outline: none; box-shadow: 0 0 0 3px #74334609; border-color: #b58895!important; }
+.settings-form-note { display: flex; gap: 9px; align-items: center; max-width: 800px; margin: 17px 0 25px; color: #b59f82; }
+.settings-form-note p { font-size: 10px!important; margin: 0!important; }
+.settings-form-note svg { flex-shrink: 0; }
+.settings-save-row { display: flex; justify-content: space-between; align-items: center; gap: 20px; border-top: 1px solid #ede3d6; padding-top: 20px; }
+.settings-save-row>span { display: flex; align-items: center; gap: 7px; font-size: 10px; color: #b09b84; }
+.settings-save-row>span::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: #b1b8a1; }
+.settings-content .button { font-size: 11px; min-height: 39px; padding: 10px 14px; }
+.settings-content .text-link { font-size: 11px; }
+.settings-people-tabs { display: inline-flex; align-self: flex-start; gap: 3px; padding: 4px; border: 1px solid #e7dccd; background: #f7f2e9; border-radius: 8px; }
+.settings-people-tabs button { font-size: 11px; color: #a18c76; padding: 9px 14px; border: 1px solid transparent; border-radius: 5px; }
+.settings-people-tabs button[aria-pressed=true] { background: #fffefa; border-color: #e8ddcd; color: #785144; box-shadow: 0 1px 3px #6a4d3810; }
+.settings-content .settings-section-heading { align-items: center; gap: 20px; }
+.settings-content .settings-section-heading p { margin-bottom: 0; }
+.settings-member-count { font-size: 10px; padding: 7px 10px; border: 1px solid #e8ddcc; border-radius: 6px; color: #a18c72; white-space: nowrap; }
+.task-role-help { margin: 22px 0 0; padding: 14px 16px; border: 1px solid #e9dfd0; border-radius: 9px; background: #fbf7ef; }
+.task-role-help summary { color: #9b7f64; font-size: 11px; cursor: pointer; }
+.task-role-guide { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 15px 0 0; }
+.task-role-guide span { display: flex; flex-direction: column; gap: 6px; font-size: 11px; color: #ad9680; line-height: 1.7; }
+.task-role-guide strong { color: #927252; font-weight: 550; }
+.settings-team-search { max-width: 320px; margin: 22px 0; }
+.settings-team-search input { padding: 11px 13px!important; border: 1px solid #e7ddce!important; font-size: 12px!important; min-height: 40px!important; }
+.settings-team-search input::placeholder { color: #bba893; }
+.settings-team-column-labels { display: flex; justify-content: space-between; font-size: 9px; letter-spacing: .8px; text-transform: uppercase; color: #b49b82; padding: 0 0 12px; border-bottom: 1px solid #ece1d2; }
+.settings-team-column-labels span:last-child { width: 150px; }
+.settings-content .wedding-member-row { padding: 17px 0; gap: 13px; align-items: center; border-color: #eee5d9; }
+.settings-content .wedding-member-row:last-child { border-bottom: 0; }
+.settings-content .task-team-member { flex-wrap: nowrap; }
+.settings-content .settings-member-avatar { display: grid; place-items: center; width: 36px; height: 36px; flex-shrink: 0; border-radius: 11px; background: #f2e9dd; color: #a58a69; font-size: 11px; border: 1px solid #eadfce; }
+.settings-member-avatar.role-manager,.settings-member-avatar.role-owner { background: #f1e4e5; border-color: #e6ced3; color: #a06e7a; }
+.settings-content .settings-member-name { flex: 1; min-width: 0; gap: 5px; }
+.settings-content .settings-member-name strong,.settings-content .wedding-member-row strong { font-size: 12px; color: #7b5b45; font-weight: 550; }
+.settings-content .settings-member-name small,.settings-content .wedding-member-row small { font-size: 10px; color: #b09a82; }
+.settings-content .settings-role-select { flex-shrink: 0; width: 150px; }
+.settings-content .wedding-member-row select { width: 100%; min-height: 38px; border: 1px solid #e1d2be; padding: 9px 10px; border-radius: 7px; background: #fff; font-size: 11px; color: #8b6c50; }
+.settings-content .task-team-member .settings-role-pill { margin: 0; }
+.settings-content .data-option { padding: 24px 0; border-bottom: 1px solid #ece2d5; }
+.settings-content .data-option:last-child { border-bottom: 0; padding-bottom: 0; }
+.settings-content .data-option h3 { margin-top: 0; }
+.settings-content .data-option p { max-width: 670px; }
+.settings-content input[type=file] { display: block; margin-top: 10px; font-size: 11px; max-width: 100%; }
+.settings-content .task-checkbox { margin: 12px 0; }
+.settings-content .settings-panel .task-notice p { margin-bottom: 8px; }
+.settings-content .settings-panel p,.settings-form-note p { color: #8a7564; }
+.settings-sidebar button:not([aria-current=page]),.settings-save-row>span,.settings-team-column-labels { color: #8d7762; }
+.task-role-help .inventory-hint { margin-bottom: 0; }
+.settings-content .wedding-member-row .settings-member-role { color: #8b7560; }
+@media(max-width:1000px) {
+ .settings-sidebar nav { gap: 20px; }
+ .settings-sidebar button { gap: 6px; }
+ .settings-sidebar button strong { font-size: 10px; }
+ .settings-content .settings-panel { padding: 24px; }
+}
+@media(max-width:700px) {
+ .settings-redesign>.page-heading h1 { font-size: 30px; }
+ .settings-redesign>.page-heading .page-description { line-height: 1.7; font-size: 12px; }
+ .settings-redesign .settings-wedding-context { padding: 13px; gap: 10px; border-radius: 10px; }
+ .settings-redesign .settings-wedding-context strong { font-size: 12px; }
+ .settings-redesign .settings-wedding-context>div>span { font-size: 10px; }
+ .settings-role-pill { font-size: 8px; padding: 6px 8px; }
+ .settings-layout { margin-top: 18px; gap: 18px; }
+ .settings-sidebar { display: none; }
+ .settings-mobile-picker { display: flex; flex-direction: column; gap: 8px; font-size: 10px; color: #a68c71; }
+ .settings-mobile-picker select { padding: 12px; border: 1px solid #e1d2be; border-radius: 8px; background: #fffefa; font-size: 16px; color: #8b6c50; }
+ .settings-content .settings-panel { padding: 20px; border-radius: 12px; }
+ .settings-content .settings-panel h2 { font-size: 22px; }
+ .settings-card-heading { gap: 12px; padding-bottom: 20px; }
+ .settings-fields { grid-template-columns: 1fr; gap: 22px; }
+ .settings-fields input,.settings-team-search input { font-size: 16px!important; }
+ .settings-form-note { align-items: flex-start; gap: 8px; }
+ .settings-save-row { gap: 15px; align-items: stretch; flex-direction: column; }
+ .settings-save-row .task-actions .button { width: 100%; justify-content: center; }
+ .settings-content .settings-section-heading { align-items: flex-start; flex-wrap: wrap; gap: 14px; }
+ .settings-member-count { font-size: 9px; }
+ .settings-team-search { max-width: none; }
+ .settings-team-column-labels span:last-child { width: 130px; }
+ .settings-content .settings-member-avatar { display: none; }
+ .settings-content .settings-role-select { width: 130px; }
+ .settings-content .wedding-member-row select { font-size: 12px; min-height: 44px; }
+ .task-role-guide { grid-template-columns: 1fr; gap: 15px; }
+ .settings-content .settings-panel p { font-size: 12px; }
+}

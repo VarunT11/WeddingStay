@@ -16,6 +16,7 @@ import {migrateOfflineWorkspace,offlineEntry,localWorkspaceWeddingIds} from './o
 import {WeddingDirectory,DirectoryPage,purgeWedding} from './WeddingDirectory';
 import {rememberOpenedWedding,forgetOpenedWedding} from './weddingSelection';
 import './cloud-sync.css';
+import {taskBridge} from './taskStore';
 
 type Access={scope:WeddingScope;user:User;role:CloudRole;snapshot:CloudSnapshot;online:boolean;canEdit:boolean;workMode:'live'|'offline';offline:ReturnType<typeof useOfflineWorkspace>;workOffline:()=>Promise<void>;status:SyncStatus;lastSyncedAt:string|null;cacheWarning:string;diagnostics:SyncDiagnostics;retryConnection:()=>void;reportError:(error:unknown)=>void;commit:(before:CloudSnapshot,next:Dataset)=>Promise<CloudSnapshot>;exportCopy:()=>void;signOut:()=>Promise<void>;chooseWedding:()=>void;permissionVerified:boolean};
 const CloudContext=createContext<Access|null>(null);
@@ -86,9 +87,9 @@ function WeddingAccess({scope,user,onChoose,onLogout,children}:{scope:WeddingSco
  }
  function exportCopy(){if(denied.current)return;const saved=offline.snapshot||snapshotRef.current;if(!saved||!sameScope(saved.scope,scope))return;const url=URL.createObjectURL(new Blob([serializeDataset(saved.data)],{type:'application/json'})),link=document.createElement('a');link.href=url;link.download=scope.weddingId+'-'+exportFilename();link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
  function hasOpenForm(){return !!document.querySelector('[role="dialog"]');}
- function chooseWedding(){if(offline.busy||writing.current||hasOpenForm()){setError('Close the current form or finish saving before switching weddings.');return;}if(offline.pending)setExit('switch');else onChoose();}
- async function signOut(){if(offline.busy||writing.current||hasOpenForm()){setError('Close the current form before signing out.');return;}const ids=await localWorkspaceWeddingIds(scope.projectId,scope.uid);if(ids.length)setExit('logout');else await onLogout();}
- async function workOffline(){if(denied.current||!snapshot||!role)throw new Error('Wait for a complete authorised copy.');await offline.enter(snapshot,role,permission.current&&status==='online');}
+ function chooseWedding(){if(offline.busy||writing.current||taskBridge(scope)?.busy||hasOpenForm()){setError('Close the current form or finish saving before switching weddings.');return;}if(offline.pending||taskBridge(scope)?.pending)setExit('switch');else onChoose();}
+ async function signOut(){if(offline.busy||writing.current||taskBridge(scope)?.busy||hasOpenForm()){setError('Close the current form before signing out.');return;}const ids=await localWorkspaceWeddingIds(scope.projectId,scope.uid);if(ids.length||taskBridge(scope)?.pending)setExit('logout');else await onLogout();}
+ async function workOffline(){if(denied.current||!snapshot||!role)throw new Error('Wait for a complete authorised copy.');await taskBridge(scope)?.prepare();await offline.enter(snapshot,role,permission.current&&status==='online');}
  const activeSnapshot=offline.snapshot||snapshot,activeRole=role||offline.workspace?.role;
  useEffect(()=>{
   if(offline.ready&&activeSnapshot&&activeRole&&!denied.current&&auth?.currentUser?.uid===scope.uid&&(permissionVerified||!navigator.onLine))rememberOpenedWedding(scope);

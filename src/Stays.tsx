@@ -12,7 +12,7 @@ import {Requirements} from './RoomPlanning';
 import {parseStayRoute,nightPath,propertyPath,roomsPath,allocationPath,areaPath,managePropertyPath} from './stayRoutes';
 import {stayDate,stayDates,stayStatus,StayError} from './StayUI';
 import {stayNights} from './stayNights';
-import './stays.css';
+import './stays.css'; import {RelatedTasks} from './Tasks';
 import {NightCards} from './NightCards';
 import {NightOverview} from './NightOverview';
 type Props={data:Dataset;commit:(data:Dataset,message:string)=>Promise<boolean>};
@@ -40,10 +40,10 @@ export function Stays({data,commit,renderAreas,renderRooms,onAddArea,onAddRoom,o
  </>:managing&&property?<>
  <div className="page-heading"><div className="wedding-heading-copy"><WeddingArt kind="stay"/><h1>{property.name}</h1><p className="page-description">Property setup is shared across all nights.</p></div><Link className="button secondary" to={roomsPath(date)+'?property='+property.id}>View rooms for {stayDate(date)}</Link></div>
  <div className="stay-property-tabs" aria-label="Property sections"><button aria-pressed={propertyTab==='booking'} onClick={()=>setPropertyTab('booking')}>Booking details</button><button aria-pressed={propertyTab==='rooms'} onClick={()=>setPropertyTab('rooms')}>Areas & rooms</button></div>
- {propertyTab==='booking'&&<><PropertyCard data={data} property={property} date={date} catalog details/><button className="button secondary" onClick={()=>openEdit(property.id)}>Edit booking details</button></>}<PropertyInventory key={property.id} hidden={propertyTab!=='rooms'} data={data} propertyId={property.id} feedback={inventoryFeedback} onAddArea={onAddArea} onAddRoom={onAddRoom} onEditArea={onEditArea} onEditRoom={onEditRoom}/>
+ {propertyTab==='booking'&&<><RelatedTasks kind="property" id={property.id}/><PropertyCard data={data} property={property} date={date} catalog details/><button className="button secondary" onClick={()=>openEdit(property.id)}>Edit booking details</button></>}<PropertyInventory key={property.id} hidden={propertyTab!=='rooms'} data={data} propertyId={property.id} feedback={inventoryFeedback} onAddArea={onAddArea} onAddRoom={onAddRoom} onEditArea={onEditArea} onEditRoom={onEditRoom}/>
  </>:route.kind==='night'?<NightOverview data={data} date={date}/>:route.kind==='rooms'?renderRooms():route.kind==='property'&&property?<>
  <div className="page-heading"><div className="wedding-heading-copy"><WeddingArt kind="stay"/><p className="eyebrow">YOUR BOOKED PROPERTY</p><h1>{property.name}</h1><p className="page-description">Booking details and areas for this night.</p></div><Link className="button secondary" to={managePropertyPath(property.id)}><Pencil size={15}/>Manage property</Link></div>
- <PropertyCard data={data} property={property} date={date} details/>
+ <RelatedTasks kind="property" id={property.id}/><PropertyCard data={data} property={property} date={date} details/>
  <div className="section-heading area-heading"><h2>Areas at {property.name}</h2><button className="button primary" onClick={()=>onAddArea(property.id)}><Plus size={15}/>Add area</button></div>{renderAreas(property.id)}
  {!data.areas.some(a=>a.propertyId===property.id)&&<div className="planning-empty">Room details missing. Add an area, then add its rooms.</div>}
  <Requirements data={data} commit={commit} propertyId={property.id}/>

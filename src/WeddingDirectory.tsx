@@ -13,10 +13,12 @@ import {Plus,CalendarDays,ArrowRight,X,Flower2} from 'lucide-react';
 import {AppLogo} from './AppLogo';
 import {lastOpenedWedding,forgetOpenedWedding} from './weddingSelection';
 import './weddings.css';
+import {clearTaskAccount,taskLocal} from './taskStore';
 
 const directoryKey=(uid:string)=>'weddingstay.directory.'+firebaseProjectId+'.'+uid;
-export async function purgeWedding(scope:WeddingScope){clearCloudCache(scope);await offlineEntry(scope,'access-control','purge');try{const prefix='weddingstay.preference.'+[scope.projectId,scope.uid,scope.weddingId].map(encodeURIComponent).join(':')+'.';for(const key of Object.keys(localStorage))if(key.startsWith(prefix))localStorage.removeItem(key);}catch{/* Local preferences may be unavailable. */}}
+export async function purgeWedding(scope:WeddingScope){clearCloudCache(scope);await taskLocal(scope,'purge');await offlineEntry(scope,'access-control','purge');try{const prefix='weddingstay.preference.'+[scope.projectId,scope.uid,scope.weddingId].map(encodeURIComponent).join(':')+'.';for(const key of Object.keys(localStorage))if(key.startsWith(prefix))localStorage.removeItem(key);}catch{/* Local preferences may be unavailable. */}}
 export async function clearAccountWeddings(uid:string){
+ await clearTaskAccount(firebaseProjectId,uid);
  const ids=new Set([...cachedWeddingIds(firebaseProjectId,uid),...await localWorkspaceWeddingIds(firebaseProjectId,uid),'main']);
  for(const weddingId of ids)await purgeWedding({projectId:firebaseProjectId,uid,weddingId});
  try{localStorage.removeItem(directoryKey(uid));}catch{/* Storage may be unavailable. */}

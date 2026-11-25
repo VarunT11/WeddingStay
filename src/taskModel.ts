@@ -15,6 +15,21 @@ export const taskStatuses:TaskStatus[]=['To do','In progress','Blocked','Done'];
 export const taskManager=(role:TaskRole)=>role==='owner'||role==='manager';
 export const assignedTo=(task:WeddingTask,uid:string)=>task.assignee===uid||task.helpers.includes(uid);
 export const sameTaskValue=(a:unknown,b:unknown)=>JSON.stringify(a)===JSON.stringify(b);
+export function updateTaskChecklist(task:WeddingTask,stepId:string,checked:boolean,uid:string,at=new Date().toISOString()):WeddingTask {
+ if(!task.checklist.some(step=>step.id===stepId))throw new Error('This checklist step is no longer available. Review the latest task.');
+ const checkedSteps=task.checklist.filter(step=>step.id===stepId?checked:task.checkedSteps.includes(step.id)).map(step=>step.id);
+ return {...task,checkedSteps,updatedAt:at,updatedBy:uid};
+}
+export function recordTaskUpdate(data:TaskData,task:WeddingTask,uid:string,name:string):TaskData {
+ const previous=data.tasks.find(t=>t.id===task.id),changed=previous?Object.keys(task).filter(key=>!['updatedAt','updatedBy'].includes(key)&&!sameTaskValue(previous[key as keyof WeddingTask],task[key as keyof WeddingTask])):[];
+ if(previous&&!changed.length)return data;
+ let action=!previous?'Created task':previous.archived!==task.archived?(task.archived?'Archived task':'Restored task'):previous.status!==task.status?'Status: '+task.status:'Updated '+changed.join(', ');
+ if(previous&&previous.status===task.status&&changed.length===1&&changed[0]==='checkedSteps'){
+  const steps=task.checklist.filter(step=>previous.checkedSteps.includes(step.id)!==task.checkedSteps.includes(step.id));
+  action=steps.length===1?(task.checkedSteps.includes(steps[0].id)?'Completed checklist step: ':'Reopened checklist step: ')+steps[0].title:`Updated checklist (${task.checkedSteps.length}/${task.checklist.length} complete)`;
+ }
+ return {...data,tasks:previous?data.tasks.map(t=>t.id===task.id?task:t):[...data.tasks,task],activity:[...data.activity,{id:crypto.randomUUID(),taskId:task.id,action,actor:uid,actorName:name,at:new Date().toISOString()}]};
+}
 export function overdueTask(task:WeddingTask,now=new Date()){
  return !task.archived&&task.status!=='Done'&&!!task.dueDate&&(task.dueAt?Date.parse(task.dueAt)<now.getTime():task.dueDate<localToday());
 }

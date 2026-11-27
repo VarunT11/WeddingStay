@@ -1,4 +1,4 @@
-import {storedData,validateStayChanges,validateData,type Dataset} from './data';
+import {CLIENT_SCHEMA} from './schema'; import {storedData,normalizeData,validateStayChanges,validateData,type Dataset} from './data';
 import {recordKinds,type CloudSnapshot} from './cloudStore';
 import {sameScope,scopeKey,type WeddingScope} from './weddingScope';
 import {type CloudRole} from './cloudCache';
@@ -23,7 +23,7 @@ export async function offlineEntry(scope:WeddingScope,owner:string,action:'read'
    if(entry.revoked){if(action==='save')throw Object.assign(new Error('Wedding access was revoked. This copy cannot be saved.'),{code:'permission-denied'});result={writable:false};return;}
    if(workspace&&!sameScope(workspace.scope,scope))throw new Error('This workspace belongs to another wedding.');
    const available=!entry.owner||entry.owner===owner||(entry.until||0)<Date.now();
-   if(entry.workspace){const saved=entry.workspace;if(saved.format!==2||!sameScope(saved.scope,scope)||!sameScope(saved.baseline.scope,scope)||!Number.isFinite(Date.parse(saved.verifiedAt))||!saved.id||!Number.isInteger(saved.revision)||saved.revision<1||!['owner','coordinator'].includes(saved.role)||!Number.isInteger(saved.baseline?.revision))throw new Error('This offline workspace could not be opened. Its saved data was kept.');validateData(saved.baseline.data);validateData(saved.working);if(saved.upload){if(!sameScope(saved.upload.before.scope,scope))throw new Error('The pending upload belongs to another wedding.');validateData(saved.upload.before.data);validateData(saved.upload.after);}}
+   if(entry.workspace){const saved=entry.workspace;if(saved.format!==2||!sameScope(saved.scope,scope)||!sameScope(saved.baseline.scope,scope)||!Number.isFinite(Date.parse(saved.verifiedAt))||!saved.id||!Number.isInteger(saved.revision)||saved.revision<1||!['owner','coordinator'].includes(saved.role)||!Number.isInteger(saved.baseline?.revision))throw new Error('This offline workspace could not be opened. Its saved data was kept.');saved.baseline.data=normalizeData(saved.baseline.data);saved.working=normalizeData(saved.working);if(saved.upload){if(!sameScope(saved.upload.before.scope,scope))throw new Error('The pending upload belongs to another wedding.');saved.upload.before.data=normalizeData(saved.upload.before.data);saved.upload.after=normalizeData(saved.upload.after);}}
    if(action==='claim'&&available&&entry.workspace){entry.owner=owner;entry.until=Date.now()+30000;store.put(entry,key(scope));}
    if(action==='release'&&entry.owner===owner){delete entry.owner;delete entry.until;store.put(entry,key(scope));}
    if(action==='save'||action==='remove'){
@@ -60,7 +60,7 @@ export function mergeOffline(base:Dataset,local:Dataset,cloud:Dataset,choices:Ch
 }
 // Preflight every intermediate dataset. No upload starts until the entire plan is valid.
 export function planOfflineBatches(before:Dataset,target:Dataset,clientSchema?:number):Dataset[]{
- if((clientSchema||0)>4)throw new Error('Update the app before syncing this workspace. Local work is kept.');
+ if((clientSchema||0)>CLIENT_SCHEMA)throw new Error('Update the app before syncing this workspace. Local work is kept.');
  validateData(target);validateStayChanges(before,target);let current=structuredClone(storedData(before)) as Dataset,pending=recordChanges(before,target),batchWrites=0;const batches:Dataset[]=[];
  for(const change of pending)if(change.kind==='history'&&rows(before,'history').has(change.id))throw new Error('Existing history entries cannot be changed.');
  if((clientSchema||0)<2){if(before.guestCategories.length>440)throw new Error('This older cloud dataset needs an owner-led category migration before offline sync. Local work is kept.');batches.push(structuredClone(current));}

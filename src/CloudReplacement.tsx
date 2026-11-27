@@ -33,7 +33,7 @@ export function CloudReplacement({onBusyChange,disabled=false}:{onBusyChange:(bu
  }
  return <section className="data-option cloud-replacement">
   <h3>Replace cloud data</h3>
-  <p>Upload your edited WeddingStay JSON to replace all wedding records, including guests, events, rooms, allocations and history. Records missing from the file leave the active dataset. Account access stays unchanged.</p>
+  <p>Upload your edited WeddingStay JSON to replace all wedding records, including guests, events, attendance, rooms, allocations and history. Records missing from the file leave the active dataset. Account access stays unchanged.</p>
   <input ref={file} className="file-input" type="file" accept=".json,application/json" aria-label="Choose replacement WeddingStay JSON" disabled={disabled||busy||reading||!cloud.online} onChange={e=>{const chosen=e.target.files?.[0];e.target.value='';if(chosen)void select(chosen);}}/>
   <button className="button secondary" disabled={disabled||busy||reading||!cloud.online} onClick={()=>file.current?.click()}><Upload size={15}/>{reading?'Reading file…':'Choose replacement JSON'}</button>
   {!cloud.online&&<p>Connect to the cloud to review or replace data.</p>}

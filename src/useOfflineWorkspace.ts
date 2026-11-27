@@ -1,4 +1,4 @@
-import {useEffect,useMemo,useRef,useState} from 'react';
+import {CLIENT_SCHEMA} from './schema'; import {useEffect,useMemo,useRef,useState} from 'react';
 import {sameScope,scopeKey,type WeddingScope} from './weddingScope';
 import {verifyWeddingAccess,isAccessRevoked} from './weddingAccess';
 import {auth,cloudError} from './firebase';
@@ -75,7 +75,7 @@ export function useOfflineWorkspace(scope:WeddingScope,callbacks:Callbacks){
    if(latest.datasetVersion!==value.baseline.datasetVersion){setReplaced(true);throw new Error('The owner replaced the cloud dataset. Export your local work, then discard this workspace to start from the replacement.');}
    // A transaction may have committed before its acknowledgement or local checkpoint failed.
    // Recognise its exact after-image so subsequent local edits do not conflict with our own batch.
-   if(value.upload&&latest.revision>value.upload.before.revision&&recordChanges(value.upload.before.data,value.upload.after).every(change=>sameRecord((latest.data[change.kind] as {id:string}[]).find(row=>row.id===change.id),change.value))){value={...value,baseline:{...value.upload.before,data:value.upload.after,revision:value.upload.before.revision+1,clientSchema:4},upload:undefined};}
+   if(value.upload&&latest.revision>value.upload.before.revision&&recordChanges(value.upload.before.data,value.upload.after).every(change=>sameRecord((latest.data[change.kind] as {id:string}[]).find(row=>row.id===change.id),change.value))){value={...value,baseline:{...value.upload.before,data:value.upload.after,revision:value.upload.before.revision+1,clientSchema:CLIENT_SCHEMA},upload:undefined};}
    if(value.role==='owner'&&role!=='owner'&&recordChanges(value.baseline.data,value.working).some(change=>change.kind==='guestCategories'))throw new Error('Your role changed. Category management changes need owner review before syncing. Export your local work for the owner.');
    const useChoices=review?.snapshot.revision===latest.revision&&review.snapshot.datasetVersion===latest.datasetVersion?choices:{};
    const merged=mergeOffline(value.baseline.data,value.working,latest.data,useChoices);

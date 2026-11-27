@@ -1,4 +1,4 @@
-import { roomOccupancy,roomStayError,roomAssignments,withGuestCategories, STORAGE_KEY, LEGACY_STORAGE_KEY, MigrationRequired, seed, projectData, propertyForRoom, allocationOn, countOf, statusOf, isDate, overlaps, type Dataset, type Room, type Allocation, type StayAllocation, type DateRange, type HistoryEntry, type AllocationLabel, type LegacyDataset } from './model';
+import { roomOccupancy,roomStayError,roomAssignments,withGuestCategories,withEventAttendance, STORAGE_KEY, LEGACY_STORAGE_KEY, MigrationRequired, seed, projectData, propertyForRoom, allocationOn, countOf, statusOf, isDate, overlaps, type Dataset, type Room, type Allocation, type StayAllocation, type DateRange, type HistoryEntry, type AllocationLabel, type LegacyDataset } from './model';
 export * from './model';
 
 export function summary(inventory: Room[]) {
@@ -16,10 +16,15 @@ function range(r:DateRange) { requireValue(isDate(r.checkIn)&&isDate(r.checkOut)
 function nullableCount(n:number|null) { return n===null||(Number.isInteger(n)&&n>=0); }
 export function validateData(data: Dataset): void {
   requireValue(data?.version===3,'Saved data has an unsupported format.');
+  data=withEventAttendance(data);
   requireValue(data.wedding&&typeof data.wedding.name==='string'&&data.wedding.name.trim()&&isDate(data.wedding.defaultDate),'Wedding settings are incomplete.');
   requireValue(typeof data.referenceData==='boolean'&&Number.isFinite(Date.parse(data.createdAt))&&Number.isFinite(Date.parse(data.updatedAt)),'Dataset metadata is incomplete.');
   const properties=unique(data.properties,'Property'),areas=unique(data.areas,'Area'),rooms=unique(data.rooms,'Room'),labels=unique(data.labels,'Label'),guests=unique(data.guests,'Guest group'),events=unique(data.events,'Event');
   unique(data.allocations,'Allocation');unique(data.invitations,'Invitation');unique(data.requirements,'Requirement');unique(data.history,'History');
+  unique(data.attendance,'Attendance');
+  const attendancePairs=new Set<string>();
+  for(const record of data.attendance){const key=JSON.stringify([record.eventId,record.guestGroupId]);requireValue(events.has(record.eventId)&&guests.has(record.guestGroupId)&&!attendancePairs.has(key),'Attendance references must be valid and unique per event and guest group.');attendancePairs.add(key);requireValue(['Not recorded','Attended','Did not attend'].includes(record.status)&&['invited','added-at-event'].includes(record.source)&&typeof record.notes==='string'&&record.notes.length<=10000&&typeof record.updatedBy==='string'&&!!record.updatedBy,'Attendance details are invalid.');requireValue(record.status==='Attended'?(record.actualHeadcount===null||Number.isInteger(record.actualHeadcount)&&record.actualHeadcount>0):record.status==='Did not attend'?record.actualHeadcount===0:record.actualHeadcount===null,'Attendance count must match its status.');requireValue(!!record.updatedAt&&Number.isFinite(Date.parse(record.updatedAt))&&!!record.createdAt&&Number.isFinite(Date.parse(record.createdAt)),'Attendance timestamps are invalid.');}
+  for(const event of data.events)requireValue(['Upcoming','In progress','Completed'].includes(event.lifecycle!)&&(event.lifecycleChangedAt===undefined||Number.isFinite(Date.parse(event.lifecycleChangedAt)))&&(event.lifecycleChangedBy===undefined||typeof event.lifecycleChangedBy==='string'),'Event lifecycle is invalid.');
   const named=(s:string)=>typeof s==='string'&&!!s.trim();
   const categories=unique(data.guestCategories||[],'Guest category'),categoryNames=new Set<string>();
   for(const category of data.guestCategories||[]){const key=category.name?.trim().toLowerCase();requireValue(named(category.name)&&!categoryNames.has(key),'Use a unique, nonempty guest category name.');categoryNames.add(key);}
@@ -55,7 +60,7 @@ export function validateData(data: Dataset): void {
   for(const r of data.requirements){range(r);
     requireValue(!data.requirements.some(other=>other.id!==r.id&&other.labelId===r.labelId&&overlaps(other,r)&&(!other.propertyId||!r.propertyId||other.propertyId===r.propertyId)&&(!other.guestGroupId||!r.guestGroupId||other.guestGroupId===r.guestGroupId)),'Overlapping requirements would count the same allocations twice. Choose separate dates, labels or non-overlapping property/guest scopes.');requireValue(labels.has(r.labelId)&&(!r.propertyId||properties.has(r.propertyId))&&(!r.guestGroupId||guests.has(r.guestGroupId))&&Number.isInteger(r.roomsRequired)&&r.roomsRequired>0,'Room requirement details are invalid.');}
 }
-export function normalizeData(data:Dataset): Dataset { const next=withGuestCategories(data);validateData(next);return projectData(next); }
+export function normalizeData(data:Dataset): Dataset { const next=withGuestCategories(withEventAttendance(data));validateData(next);return projectData(next); }
 export function validateStayChanges(before:Dataset,next:Dataset):void {
  for(const stay of next.allocations){
   if(stay.lifecycle!=='active')continue;

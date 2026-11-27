@@ -1,4 +1,4 @@
-import {collection,doc,getDocFromServer,getDocsFromServer,onSnapshot,query,where} from 'firebase/firestore';
+import {CLIENT_SCHEMA} from './schema'; import {collection,doc,getDocFromServer,getDocsFromServer,onSnapshot,query,where} from 'firebase/firestore';
 import {database} from './firebase';
 import {sameScope,weddingRef,type WeddingScope} from './weddingScope';
 import {emptyDataset,normalizeData,storedData,validateData,type Dataset} from './data';
@@ -30,7 +30,7 @@ export function createWeddingSync({scope,baseline:initial,onData,onState,onError
    for(let attempt=0;attempt<3&&!stopped;attempt++){
     const target:CloudHead|undefined=head;
     if(!target||target.state!=='ready'||!headOnline)return;
-    if((target.clientSchema||0)>4)throw new Error('Update the app to open this newer wedding format. Your last complete copy is kept.');
+    if((target.clientSchema||0)>CLIENT_SCHEMA)throw new Error('Update the app to open this newer wedding format. Your last complete copy is kept.');
     if(baseline&&baseline.datasetVersion===target.activeVersion&&baseline.revision>target.revision)return;
     if(baseline&&baseline.datasetVersion===target.activeVersion&&baseline.revision===target.revision&&baseline.clientSchema===target.clientSchema){onData(baseline);onState('online');return;}
     onState('syncing');

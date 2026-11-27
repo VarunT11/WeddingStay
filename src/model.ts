@@ -3,7 +3,9 @@ type Timestamps = { createdAt?: string; updatedAt?: string };
 export type WeddingSettings = { name: string; defaultDate: string };
 export type GuestCategory = Timestamps & {id:string;name:string};
 export type GuestGroup = Timestamps & { id: string; name: string; members: string[]; headcount: number | null; category: string; categoryId?:string; contact: string; needsAccommodation: boolean | null; notes: string };
-export type WeddingEvent = Timestamps & { id: string; name: string; date: string; time?: string; location: string; notes: string };
+export type EventLifecycle='Upcoming'|'In progress'|'Completed';
+export type WeddingEvent = Timestamps & { id: string; name: string; date: string; time?: string; location: string; notes: string; lifecycle?:EventLifecycle; lifecycleChangedAt?:string; lifecycleChangedBy?:string };
+export type EventAttendance = Timestamps & {id:string;eventId:string;guestGroupId:string;status:'Not recorded'|'Attended'|'Did not attend';actualHeadcount:number|null;source:'invited'|'added-at-event';notes:string;updatedBy:string};
 export type Invitation = Timestamps & { id: string; guestGroupId: string; eventId: string; response: 'Pending' | 'Confirmed' | 'Declined'; confirmedHeadcount: number | null };
 export type DateRange = { checkIn: string; checkOut: string };
 export type StayProperty = Timestamps & { id: string; name: string; address: string; contactName?:string; contactPhone?:string; notes: string; bookedRanges: DateRange[] };
@@ -16,7 +18,7 @@ export type StayAllocation = Allocation & DateRange & { id: string; roomId: stri
 export type Room = Timestamps & { id: string; number: string; areaId: string; type: 'Normal' | 'Suite'; capacity: number; special?: string; notes?: string; allocation?: Allocation; stays?:StayAllocation[]; booked?:boolean; overdue?:boolean; propertyId?:string };
 export type HistoryEntry = { id: string; at: string; action: string; roomId?: string; destinationRoomId?: string; areaId?: string; roomSnapshot?: Room; destinationSnapshot?: Room; areaSnapshot?: Area; before?: Room[]; after?: Room[]; roomNames?: Record<string,string>; areaNames?: Record<string,string>; labelNames?: Record<string,string>; allocationId?: string; recoveredEventId?: string };
 export type RoomRequirement = DateRange & Timestamps & { id: string; labelId: string; roomsRequired: number; propertyId?: string; guestGroupId?: string };
-export type Dataset = { version: 3; wedding: WeddingSettings; guests: GuestGroup[]; guestCategories:GuestCategory[]; events: WeddingEvent[]; invitations: Invitation[]; properties: StayProperty[]; areas: Area[]; rooms: Room[]; allocations: StayAllocation[]; requirements: RoomRequirement[]; labels: AllocationLabel[]; history: HistoryEntry[]; referenceData: boolean; createdAt: string; updatedAt: string; viewDate?:string };
+export type Dataset = { version: 3; wedding: WeddingSettings; guests: GuestGroup[]; guestCategories:GuestCategory[]; events: WeddingEvent[]; invitations: Invitation[]; attendance:EventAttendance[]; properties: StayProperty[]; areas: Area[]; rooms: Room[]; allocations: StayAllocation[]; requirements: RoomRequirement[]; labels: AllocationLabel[]; history: HistoryEntry[]; referenceData: boolean; createdAt: string; updatedAt: string; viewDate?:string };
 export type LegacyDataset = { version: 2; areas: Omit<Area,'propertyId'>[]; rooms: Room[]; labels: AllocationLabel[]; history: HistoryEntry[]; createdAt: string; updatedAt: string };
 export type MigrationSettings = { propertyName: string; bookedCheckIn: string; bookedCheckOut: string; checkIn: string; checkOut: string; defaultDate: string };
 export const STORAGE_KEY = 'weddingstay.data.v3';
@@ -64,7 +66,8 @@ export function roomStayError(data:Dataset,roomId:string,stay:Allocation&DateRan
 export function projectData(data: Dataset,date=data.viewDate||data.wedding.defaultDate): Dataset {
   return {...data,viewDate:date,rooms:data.rooms.map(room=>{const stays=allocationsOn(data,room.id,date);return {...room,stays,allocation:combinedAllocation(stays.map(a=>({...a,group:a.group.trim()||data.guests.find(g=>g.id===a.guestGroupId)?.name||'Guest stay'}))),propertyId:propertyForRoom(data,room)?.id,booked:!!propertyForRoom(data,room)?.bookedRanges.some(r=>r.checkIn<=date&&date<r.checkOut),overdue:date===localToday()&&overdueStays(data,room.id).length>0};})};
 }
-export function storedData(data: Dataset) { const {viewDate:_,...saved}=data;return {...saved,rooms:data.rooms.map(({allocation:_,stays:_s,booked:_b,overdue:_o,propertyId:_p,...room})=>room)}; }
+export function withEventAttendance(data:Dataset):Dataset {return {...data,attendance:data.attendance===undefined?[]:data.attendance,events:data.events.map(event=>({...event,lifecycle:event.lifecycle??'Upcoming'}))};}
+export function storedData(data: Dataset) { const {viewDate:_,...saved}=withEventAttendance(data);return {...saved,rooms:data.rooms.map(({allocation:_,stays:_s,booked:_b,overdue:_o,propertyId:_p,...room})=>room)}; }
 export function withGuestCategories(data:Dataset):Dataset {
  const categories=[...(data.guestCategories||[])];
  const guests=data.guests.map(guest=>{
@@ -78,7 +81,7 @@ export function withGuestCategories(data:Dataset):Dataset {
 }
 export function emptyDataset(): Dataset {
   const now=new Date().toISOString();
-  return {version:3,wedding:{name:'Your wedding',defaultDate:'2026-12-01'},guests:[],guestCategories:[],events:[],invitations:[],properties:[],areas:[],rooms:[],allocations:[],requirements:[],labels:[],history:[],referenceData:false,createdAt:now,updatedAt:now};
+  return {version:3,wedding:{name:'Your wedding',defaultDate:'2026-12-01'},guests:[],guestCategories:[],events:[],invitations:[],attendance:[],properties:[],areas:[],rooms:[],allocations:[],requirements:[],labels:[],history:[],referenceData:false,createdAt:now,updatedAt:now};
 }
 export class MigrationRequired extends Error {
   constructor(public legacy: LegacyDataset) { super('Your saved data needs a one-time stay setup.'); }

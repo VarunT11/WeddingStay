@@ -1,4 +1,5 @@
 import { normalizeData, type Dataset, type GuestGroup, type Invitation, type WeddingEvent } from './data';
+import {mergeGuestAttendance,type AttendanceMergeChoice} from './attendance';
 
 function stamped<T extends {id:string;createdAt?:string;updatedAt?:string}>(record:T,previous?:T):T {
   const now=new Date().toISOString();
@@ -30,17 +31,19 @@ export function saveGuestEvents(data:Dataset,guest:GuestGroup,eventIds:string[])
  for(const eventId of eventIds)if(!next.invitations.some(i=>i.eventId===eventId&&i.guestGroupId===guest.id))next=addInvitations(next,eventId,[guest.id]);
  return next;
 }
-export function mergeGuests(data:Dataset,target:GuestGroup,sourceId:string,resolutions:Record<string,string>):Dataset {
+export function mergeGuests(data:Dataset,target:GuestGroup,sourceId:string,resolutions:Record<string,string>,attendanceChoices:Record<string,AttendanceMergeChoice>={}):Dataset {
  if(target.id===sourceId||!data.guests.some(g=>g.id===target.id)||!data.guests.some(g=>g.id===sourceId))throw new Error('Select two different existing guest groups.');
  const invitations=data.invitations.filter(i=>i.guestGroupId!==sourceId&&i.guestGroupId!==target.id);
  const linked=data.invitations.filter(i=>i.guestGroupId===sourceId||i.guestGroupId===target.id);
  for(const eventId of new Set(linked.map(i=>i.eventId))){const pair=linked.filter(i=>i.eventId===eventId);let chosen=pair[0];if(pair.length>1){const conflict=pair.some(i=>i.response!==chosen.response||i.confirmedHeadcount!==chosen.confirmedHeadcount);if(conflict){chosen=pair.find(i=>i.id===resolutions[eventId])!;if(!chosen)throw new Error('Resolve the duplicate invitation for '+data.events.find(e=>e.id===eventId)?.name+'.');}else chosen=pair.find(i=>i.guestGroupId===target.id)||chosen;}invitations.push(stamped({...chosen,guestGroupId:target.id},chosen));}
- const next={...data,guests:data.guests.filter(g=>g.id!==sourceId),invitations,allocations:data.allocations.map(a=>a.guestGroupId===sourceId?{...a,guestGroupId:target.id}:a),requirements:data.requirements.map(r=>r.guestGroupId===sourceId?{...r,guestGroupId:target.id}:r)};
+ const attendance=mergeGuestAttendance(data,target.id,sourceId,attendanceChoices);
+ const next={...data,guests:data.guests.filter(g=>g.id!==sourceId),invitations,attendance,allocations:data.allocations.map(a=>a.guestGroupId===sourceId?{...a,guestGroupId:target.id}:a),requirements:data.requirements.map(r=>r.guestGroupId===sourceId?{...r,guestGroupId:target.id}:r)};
  return saveGuest(next,target);
 }
 export function guestReferences(data:Dataset,id:string):string[] {
   const refs:string[]=[];
   if(data.invitations.some(i=>i.guestGroupId===id))refs.push('event invitations');
+  if(data.attendance.some(row=>row.guestGroupId===id))refs.push('event attendance');
   if(data.allocations.some(a=>a.guestGroupId===id))refs.push('saved stays');
   if(data.requirements.some(r=>r.guestGroupId===id))refs.push('room requirements');
   return refs;
@@ -57,6 +60,7 @@ export function saveEvent(data:Dataset,event:WeddingEvent):Dataset {
   return normalizeData({...data,events:data.events.some(e=>e.id===next.id)?data.events.map(e=>e.id===next.id?next:e):[...data.events,next]});
 }
 export function deleteEvent(data:Dataset,id:string):Dataset {
+  if(data.attendance.some(row=>row.eventId===id))throw new Error('This event has recorded attendance. Keep it to preserve those records.');
   if(data.invitations.some(i=>i.eventId===id))throw new Error('Remove this event’s invitations before deleting it. Guest records will be kept.');
   return normalizeData({...data,events:data.events.filter(e=>e.id!==id)});
 }

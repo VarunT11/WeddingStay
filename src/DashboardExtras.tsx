@@ -1,6 +1,6 @@
 import {eventAttendanceSummary,eventLifecycle} from './attendance';
 import {EventLifecycleBadge} from './EventAttendanceUI';
-import {roomOccupancy} from './data';
+import {visibleNightRoom,roomOccupancy} from './data';
 import {WeddingArt,WeddingFlower} from './WeddingArt';
 import {stayDates} from './StayUI';
 import {ArrowRight,CalendarDays,LogIn,LogOut,Users} from 'lucide-react';
@@ -35,17 +35,17 @@ export function OverdueAttention({data}:{data:Dataset}) {
 }
 export function DashboardExtras({data}:{data:Dataset}) {
  const operational=operationsForDate(data),date=data.viewDate||data.wedding.defaultDate;
- const booked=data.rooms.filter(r=>r.booked!==false||r.overdue);
+ const booked=data.rooms.filter(visibleNightRoom);
  const assigned=booked.reduce((sum,r)=>sum+roomOccupancy(r).assigned,0),arrived=booked.reduce((sum,r)=>sum+roomOccupancy(r).arrived,0);
  return <section className="dashboard-operations">
- <section className="panel operations-panel"><h3>Arrival progress</h3><p>{arrived} of {assigned} known assigned occupants arrived</p><div className="arrival-track"><span style={{width:(assigned?arrived/assigned*100:0)+'%'}}/></div><p className="inventory-hint">{assigned-arrived} awaiting arrival · {booked.reduce((sum,r)=>sum+r.capacity,0)} total room capacity · {booked.filter(r=>r.allocation?.headcountPending).length} guest counts unknown</p></section>
+ <section className="panel operations-panel"><h3>Arrival progress</h3><p>{arrived} of {assigned} known assigned occupants arrived</p><div className="arrival-track"><span style={{width:(assigned?arrived/assigned*100:0)+'%'}}/></div><p className="inventory-hint">{assigned-arrived} awaiting arrival · {booked.filter(r=>r.booked!==false).reduce((sum,r)=>sum+r.capacity,0)} total room capacity · {booked.filter(r=>r.allocation?.headcountPending).length} guest counts unknown</p></section>
  <div className="section-heading"><h2>Events on this date</h2></div><EventCards data={data} events={operational.events}/>
  <div className="operations-columns"><section className="panel operations-panel"><h3>Scheduled arrivals <span>{operational.arrivals.length}</span></h3><p className="inventory-hint">{operational.awaiting.length} stays still awaiting check-in. Scheduled arrivals include stays already checked in or completed.</p>{operational.arrivals.length?operational.arrivals.map(stay=><StayRow key={stay.id} data={data} stay={stay}/>):<p className="inventory-hint">No check-ins scheduled.</p>}</section><section className="panel operations-panel"><h3>Scheduled departures <span>{operational.departures.length}</span></h3><p className="inventory-hint">Planned checkout dates; actual checkout is recorded separately.</p>{operational.departures.length?operational.departures.map(stay=><StayRow key={stay.id} data={data} stay={stay}/>):<p className="inventory-hint">No checkouts scheduled.</p>}</section></div>
  <Link className="text-link" to={roomsPath(date)}>Browse this night's rooms<ArrowRight size={15}/></Link>
  </section>;
 }
 export function NightOperations({data}:{data:Dataset}){
- const operational=operationsForDate(data),date=data.viewDate||data.wedding.defaultDate,booked=data.rooms.filter(room=>room.booked!==false||room.overdue);
+ const operational=operationsForDate(data),date=data.viewDate||data.wedding.defaultDate,booked=data.rooms.filter(visibleNightRoom);
  const assigned=booked.reduce((sum,room)=>sum+roomOccupancy(room).assigned,0),arrived=booked.reduce((sum,room)=>sum+roomOccupancy(room).arrived,0),unknown=booked.filter(room=>room.allocation?.headcountPending).length;
  const hasSchedule=!!(operational.arrivals.length||operational.departures.length||operational.events.length);
  return <section className="night-operations" aria-label="Activity for the selected date">

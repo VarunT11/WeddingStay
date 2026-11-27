@@ -4,7 +4,7 @@ import {assertScope,sameScope,weddingRef,type WeddingScope} from './weddingScope
 import {verifyWeddingAccess} from './weddingAccess';
 import {storedData,validateStayChanges,validateData,type Dataset} from './data';
 
-export const recordKinds=['guestCategories','guests','events','invitations','attendance','properties','areas','rooms','allocations','requirements','labels','history'] as const;
+export const recordKinds=['guestCategories','guests','events','invitations','attendance','roomAvailability','properties','areas','rooms','allocations','requirements','labels','history'] as const;
 type Kind=typeof recordKinds[number];
 export type CloudHead={state:'initializing'|'ready';revision:number;clientSchema?:number;activeVersion?:string;previousVersion?:string;collectionRevisions:Partial<Record<Kind,number>>;wedding:Dataset['wedding'];version:3;referenceData:boolean;createdAt:string;updatedAt?:unknown;updatedBy?:string;importHash?:string};
 export type CloudSnapshot={scope:WeddingScope;data:Dataset;revision:number;clientSchema?:number;datasetVersion?:string};

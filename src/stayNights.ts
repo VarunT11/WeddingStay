@@ -1,9 +1,9 @@
-import {localToday,nextDay,overdueStays,projectData,summary,type Dataset,type DateRange} from './data';
+import {visibleNightRoom,propertyForRoom,localToday,nextDay,overdueStays,projectData,summary,type Dataset,type DateRange} from './data';
 import {requirementNight} from './planning';
 export function stayNight(data:Dataset,date:string) {
  const view=projectData(data,date),properties=view.properties.filter(p=>p.bookedRanges.some(r=>r.checkIn<=date&&date<r.checkOut));
- const rooms=view.rooms.filter(r=>r.booked),requirements=view.requirements.filter(r=>r.checkIn<=date&&date<r.checkOut).map(r=>({requirement:r,...requirementNight(view,r,date)}));
- return {date,view,properties,rooms,totals:summary(rooms),requirements,remaining:requirements.reduce((s,r)=>s+r.remaining,0),inventoryPending:properties.filter(p=>!rooms.some(r=>r.propertyId===p.id)).length,overdue:date===localToday()?overdueStays(view):[]};
+ const rooms=view.rooms.filter(visibleNightRoom),requirements=view.requirements.filter(r=>r.checkIn<=date&&date<r.checkOut).map(r=>({requirement:r,...requirementNight(view,r,date)}));
+ return {date,view,properties,rooms,totals:summary(rooms),requirements,remaining:requirements.reduce((s,r)=>s+r.remaining,0),inventoryPending:properties.filter(p=>!view.roomAvailability.some(r=>r.propertyId===p.id&&r.date===date&&r.mode==='none')&&!view.rooms.some(r=>propertyForRoom(view,r)?.id===p.id)).length,overdue:date===localToday()?overdueStays(view):[]};
 }
 export function plannedNightDates(data:Dataset) {
  const dates=new Set<string>();

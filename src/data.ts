@@ -1,9 +1,9 @@
-import { roomOccupancy,roomStayError,roomAssignments,withGuestCategories,withEventAttendance, STORAGE_KEY, LEGACY_STORAGE_KEY, MigrationRequired, seed, projectData, propertyForRoom, allocationOn, countOf, statusOf, isDate, overlaps, type Dataset, type Room, type Allocation, type StayAllocation, type DateRange, type HistoryEntry, type AllocationLabel, type LegacyDataset } from './model';
+import { visibleNightRoom,firstUnavailableNight,roomOccupancy,roomStayError,roomAssignments,withGuestCategories,withEventAttendance, STORAGE_KEY, LEGACY_STORAGE_KEY, MigrationRequired, seed, projectData, propertyForRoom, allocationOn, countOf, statusOf, isDate, overlaps, type Dataset, type Room, type Allocation, type StayAllocation, type DateRange, type HistoryEntry, type AllocationLabel, type LegacyDataset } from './model';
 export * from './model';
 
 export function summary(inventory: Room[]) {
-  const rooms=inventory.filter(r=>r.booked!==false||r.overdue);
-  return { total:rooms.length, available:rooms.filter(r=>statusOf(r)==='Available').length, allotted:rooms.filter(r=>statusOf(r)==='Allotted').length, occupied:rooms.filter(r=>statusOf(r)==='Occupied').length, capacity:rooms.reduce((s,r)=>s+r.capacity,0), assigned:rooms.reduce((s,r)=>s+roomOccupancy(r).assigned,0), arrived:rooms.reduce((s,r)=>s+roomOccupancy(r).arrived,0), pending:rooms.filter(r=>r.allocation?.headcountPending).length };
+  const rooms=inventory.filter(visibleNightRoom),provided=rooms.filter(r=>r.booked!==false);
+  return { total:provided.length, available:provided.filter(r=>statusOf(r)==='Available').length, allotted:rooms.filter(r=>statusOf(r)==='Allotted').length, occupied:rooms.filter(r=>statusOf(r)==='Occupied').length, capacity:provided.reduce((s,r)=>s+r.capacity,0), assigned:rooms.reduce((s,r)=>s+roomOccupancy(r).assigned,0), arrived:rooms.reduce((s,r)=>s+roomOccupancy(r).arrived,0), pending:rooms.filter(r=>r.allocation?.headcountPending).length };
 }
 function requireValue(ok:unknown,message:string):asserts ok { if(!ok)throw new Error(message); }
 function unique(rows:{id:string}[],name:string) {
@@ -21,6 +21,9 @@ export function validateData(data: Dataset): void {
   requireValue(typeof data.referenceData==='boolean'&&Number.isFinite(Date.parse(data.createdAt))&&Number.isFinite(Date.parse(data.updatedAt)),'Dataset metadata is incomplete.');
   const properties=unique(data.properties,'Property'),areas=unique(data.areas,'Area'),rooms=unique(data.rooms,'Room'),labels=unique(data.labels,'Label'),guests=unique(data.guests,'Guest group'),events=unique(data.events,'Event');
   unique(data.allocations,'Allocation');unique(data.invitations,'Invitation');unique(data.requirements,'Requirement');unique(data.history,'History');
+  unique(data.roomAvailability,'Room availability');
+  const availabilityPairs=new Set<string>();
+  for(const value of data.roomAvailability){const key=JSON.stringify([value.propertyId,value.date]);requireValue(properties.has(value.propertyId)&&isDate(value.date)&&!availabilityPairs.has(key),'Room availability needs a unique property and night.');availabilityPairs.add(key);requireValue(['all','selected','none'].includes(value.mode)&&Array.isArray(value.roomIds)&&new Set(value.roomIds).size===value.roomIds.length,'Room availability selection is invalid.');requireValue(value.mode==='selected'?value.roomIds.length>0:value.roomIds.length===0,'Select rooms or choose No rooms.');requireValue(value.roomIds.every(id=>{const room=data.rooms.find(r=>r.id===id);return room&&propertyForRoom(data,room)?.id===value.propertyId;}),'Availability references a room outside this property.');requireValue(data.properties.find(p=>p.id===value.propertyId)?.bookedRanges.some(r=>r.checkIn<=value.date&&value.date<r.checkOut),'Availability must be within the property booking.');requireValue(typeof value.createdBy==='string'&&!!value.createdBy&&typeof value.updatedBy==='string'&&!!value.updatedBy&&!!value.createdAt&&Number.isFinite(Date.parse(value.createdAt))&&!!value.updatedAt&&Number.isFinite(Date.parse(value.updatedAt)),'Room availability attribution is invalid.');}
   unique(data.attendance,'Attendance');
   const attendancePairs=new Set<string>();
   for(const record of data.attendance){const key=JSON.stringify([record.eventId,record.guestGroupId]);requireValue(events.has(record.eventId)&&guests.has(record.guestGroupId)&&!attendancePairs.has(key),'Attendance references must be valid and unique per event and guest group.');attendancePairs.add(key);requireValue(['Not recorded','Attended','Did not attend'].includes(record.status)&&['invited','added-at-event'].includes(record.source)&&typeof record.notes==='string'&&record.notes.length<=10000&&typeof record.updatedBy==='string'&&!!record.updatedBy,'Attendance details are invalid.');requireValue(record.status==='Attended'?(record.actualHeadcount===null||Number.isInteger(record.actualHeadcount)&&record.actualHeadcount>0):record.status==='Did not attend'?record.actualHeadcount===0:record.actualHeadcount===null,'Attendance count must match its status.');requireValue(!!record.updatedAt&&Number.isFinite(Date.parse(record.updatedAt))&&!!record.createdAt&&Number.isFinite(Date.parse(record.createdAt)),'Attendance timestamps are invalid.');}
@@ -53,7 +56,7 @@ export function validateData(data: Dataset): void {
     requireValue(Number.isInteger(a.arrived)&&a.arrived>=0&&a.arrived<=total&&a.checkedIn===(a.arrived>0)&&(!a.headcountPending||!a.checkedIn),'Arrival counts and check-in status must agree.');
     if(a.lifecycle==='active'){
       requireValue(!a.headcountPending||!!(a.group.trim()||a.guestGroupId),'Pending-headcount reservations need a group name or guest-group link.');
-      requireValue(propertyForRoom(data,room)?.bookedRanges.some(r=>r.checkIn<=a.checkIn&&a.checkOut<=r.checkOut),'The stay must fit within the property booking.');
+      const unavailable=firstUnavailableNight(data,room,a);requireValue(!unavailable,'Room '+room.number+' has an active stay on '+unavailable+' and cannot be made unavailable. Move or resolve the stay first.');
       const sharingError=roomStayError(data,a.roomId,a,a.id,false);requireValue(!sharingError,sharingError);
     }
   }
@@ -81,7 +84,7 @@ export function initialData(): Dataset {
 export function defaultStay(data:Dataset,room:Room):DateRange {
   const checkIn=data.viewDate||data.wedding.defaultDate,checkOut=new Date(Date.parse(checkIn)+86400000).toISOString().slice(0,10);
   const dates={checkIn,checkOut};
-  if(!propertyForRoom(data,room)?.bookedRanges.some(r=>r.checkIn<=checkIn&&checkOut<=r.checkOut))throw new Error('This property is not booked for the working date.');
+  const unavailable=firstUnavailableNight(data,room,{checkIn,checkOut});if(unavailable)throw new Error('Room '+room.number+' is unavailable on '+unavailable+'.');
   return dates;
 }
 export const historyTitles:Record<string,string>={'allocation-created':'Allocation created','allocation-edited':'Allocation edited','checked-in':'Guests checked in','arrivals-updated':'Arrival count updated','allocation-cancelled':'Allocation cancelled','checked-out':'Guests checked out','allocation-moved':'Allocation moved','action-recovered':'Action reversed'};
@@ -142,6 +145,6 @@ export function filterRooms(rooms:Room[],labels:AllocationLabel[],filters:{area?
   const query=(filters.query||'').trim().toLowerCase();
   return rooms.filter(room=>{
     const stays=roomAssignments(room);
-    return (!filters.guest||stays.some(a=>a.guestGroupId===filters.guest))&&(!filters.property||room.propertyId===filters.property)&&(!filters.status||room.booked!==false||room.overdue)&&(!filters.area||room.areaId===filters.area)&&(!filters.status||statusOf(room)===filters.status)&&(!filters.type||room.type===filters.type)&&(!filters.label||(filters.status==='Available'?!stays.length:stays.some(a=>a.labelId===filters.label)))&&[room.number,...stays.flatMap(a=>[a.group,labels.find(l=>l.id===a.labelId)?.name||'',...a.names,...guests.filter(g=>g.id===a.guestGroupId).flatMap(g=>[g.name,...g.members])])].some(value=>value.toLowerCase().includes(query));
+    return (!filters.guest||stays.some(a=>a.guestGroupId===filters.guest))&&(!filters.property||room.propertyId===filters.property)&&(!filters.status||visibleNightRoom(room))&&(!filters.area||room.areaId===filters.area)&&(!filters.status||statusOf(room)===filters.status)&&(filters.status!=='Available'||room.booked!==false)&&(!filters.type||room.type===filters.type)&&(!filters.label||(filters.status==='Available'?!stays.length:stays.some(a=>a.labelId===filters.label)))&&[room.number,...stays.flatMap(a=>[a.group,labels.find(l=>l.id===a.labelId)?.name||'',...a.names,...guests.filter(g=>g.id===a.guestGroupId).flatMap(g=>[g.name,...g.members])])].some(value=>value.toLowerCase().includes(query));
   }).sort((a,b)=>a.number.localeCompare(b.number,undefined,{numeric:true}));
 }

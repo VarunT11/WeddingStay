@@ -175,7 +175,7 @@ service cloud.firestore {
 
     function recordCollection(kind) {
       return kind in [
-        'guestCategories', 'guests', 'events', 'invitations', 'attendance',
+        'guestCategories', 'guests', 'events', 'invitations', 'attendance', 'roomAvailability',
         'properties', 'areas', 'rooms', 'allocations',
         'requirements', 'labels', 'history'
       ];
@@ -183,6 +183,20 @@ service cloud.firestore {
 
     function versionOf(value) {
       return value.get('activeVersion', '');
+    }
+
+    function validRoomAvailability(kind) {
+      let value = request.resource.data.data;
+      return kind != 'roomAvailability' || request.resource.data.deleted == true
+        || (value.keys().hasOnly(['id', 'propertyId', 'date', 'mode', 'roomIds', 'createdAt', 'updatedAt', 'createdBy', 'updatedBy'])
+          && value.propertyId is string && value.propertyId.size() > 0
+          && value.date is string && value.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+          && value.mode in ['all', 'selected', 'none']
+          && value.roomIds is list && value.roomIds.size() == value.roomIds.toSet().size()
+          && ((value.mode == 'selected' && value.roomIds.size() > 0) || (value.mode != 'selected' && value.roomIds.size() == 0))
+          && value.createdBy is string && value.createdBy.size() > 0
+          && value.updatedBy is string && value.updatedBy.size() > 0
+          && value.createdAt is string && value.updatedAt is string);
     }
 
     function validAttendance(kind) {
@@ -233,15 +247,15 @@ service cloud.firestore {
 
       allow create: if owner(wedding)
         && request.resource.data.state == 'initializing'
-        && request.resource.data.clientSchema in [4, 5]
+        && request.resource.data.clientSchema in [4, 5, 6]
         && request.resource.data.revision == 0
         && request.resource.data.updatedBy == request.auth.uid;
 
       allow update: if active(wedding)
         && request.resource.data.updatedBy == request.auth.uid
         && request.resource.data.updatedAt == request.time
-        && request.resource.data.clientSchema in [4, 5]
-        && resource.data.get('clientSchema', 0) <= 5
+        && request.resource.data.clientSchema in [4, 5, 6]
+        && resource.data.get('clientSchema', 0) <= 6
         && request.resource.data.clientSchema >= resource.data.get('clientSchema', 0)
         && request.resource.data.schemaRevision == request.resource.data.revision
         && (
@@ -358,6 +372,7 @@ service cloud.firestore {
           && active(wedding)
           && validRecord(id)
           && validAttendance(kind)
+          && validRoomAvailability(kind)
           && (
             (head(wedding).state == 'initializing'
               && owner(wedding)
@@ -402,6 +417,7 @@ service cloud.firestore {
             && active(wedding)
             && validRecord(id)
           && validAttendance(kind)
+          && validRoomAvailability(kind)
             && (
               (owner(wedding)
                 && staged(wedding, version).state == 'uploading'

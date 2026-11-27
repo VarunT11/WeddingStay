@@ -1,16 +1,17 @@
 import {stayDate,stayDates,stayStatus} from './StayUI';
-import { roomAssignments,countOf, filterRooms, statusOf, summary, type Dataset, type Room } from './data.ts';
+import { visibleNightRoom,roomAssignments,countOf, filterRooms, statusOf, summary, type Dataset, type Room } from './data.ts';
 
 export type ReportScope = 'all' | 'current' | 'available';
-export type ReportContext = { area?: string; property?:string; guest?:string; status?: string; type?: string; query?: string; label?: string };
+export type ReportContext = { includeUnavailable?:boolean; area?: string; property?:string; guest?:string; status?: string; type?: string; query?: string; label?: string };
 export type ReportOptions = { scope: ReportScope; includeContact: boolean; includeNotes: boolean };
 
 export function reportSelection(data:Dataset,options:ReportOptions,context:ReportContext) {
  const filters=options.scope==='current'?context:options.scope==='available'?{status:'Available'}:{};
- const rooms=filterRooms(data.rooms.filter(r=>r.booked!==false||r.overdue),data.labels,filters,data.guests);
+ const rooms=filterRooms(data.rooms.filter(r=>options.scope==='current'&&context.includeUnavailable||visibleNightRoom(r)),data.labels,filters,data.guests);
  const title=options.scope==='all'?'All booked rooms':options.scope==='available'?'Available rooms':'Current results';
  const descriptions:string[]=['Selected night: '+stayDate(data.viewDate||data.wedding.defaultDate,true),'Availability in this report covers the selected night. Bulk allocation checks every night in its chosen stay.'];
  if(options.scope==='current'){
+  if(context.includeUnavailable)descriptions.push('Includes rooms not provided for this night. These rooms do not contribute to available capacity.');
   if(context.guest)descriptions.push('Guest group: '+(data.guests.find(g=>g.id===context.guest)?.name||context.guest));
   if(context.property)descriptions.push('Property: '+(data.properties.find(p=>p.id===context.property)?.name||context.property));
   if(context.area)descriptions.push('Area: '+(data.areas.find(a=>a.id===context.area)?.name||context.area));
@@ -45,7 +46,7 @@ export async function generateReport(data:Dataset,options:ReportOptions,context:
  let y=41;
  doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(...wine);doc.text(selection.title,margin,y);y+=6;
  const s=selection.totals;
- const countLine=`${s.total} rooms | ${s.available} available | ${s.allotted} reserved | ${s.occupied} checked in | ${s.assigned} assigned | ${s.arrived} arrived`;
+ const countLine=`${selection.rooms.length} rooms shown | ${s.total} provided | ${s.available} available | ${s.allotted} reserved | ${s.occupied} checked in | ${s.assigned} assigned | ${s.arrived} arrived`;
  doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(...muted);doc.text(countLine,margin,y);y+=6;
  for(const text of selection.descriptions){const lines=doc.splitTextToSize(text,width);doc.text(lines,margin,y);y+=lines.length*4+1;}
  const privateFields=[options.includeContact?'Contact numbers':null,options.includeNotes?'Allocation notes':null].filter(Boolean);
@@ -63,7 +64,7 @@ export async function generateReport(data:Dataset,options:ReportOptions,context:
  const rows=(rooms:Room[])=>rooms.flatMap(room=>(roomAssignments(room).length?roomAssignments(room):[undefined]).map(allocation=>{
   const label=data.labels.find(l=>l.id===allocation?.labelId);
   const occupants=allocation?.headcountPending?'Guest count unknown':allocation?[...allocation.names,...(allocation.unnamed?['+'+allocation.unnamed+' unnamed guests']:[])].join('\n'):'-';
-  const values=[room.number,room.special||room.type,allocation?(allocation.checkedIn?'Checked in':'Reserved'):stayStatus(statusOf(room)),allocation?.group||'-',data.guests.find(g=>g.id===allocation?.guestGroupId)?.name||'-',allocation?stayDates(allocation.checkIn,allocation.checkOut):'-',label?.name||'-',occupants,allocation?.headcountPending?'Unknown':`${countOf(allocation)} / ${room.capacity}`,String(allocation?.arrived||0)];
+  const values=[room.number,room.special||room.type,allocation?(allocation.checkedIn?'Checked in':'Reserved'):room.booked===false?(room.availabilityReason==='room-unavailable'?'Unavailable this night':'Property not booked'):stayStatus(statusOf(room)),allocation?.group||'-',data.guests.find(g=>g.id===allocation?.guestGroupId)?.name||'-',allocation?stayDates(allocation.checkIn,allocation.checkOut):'-',label?.name||'-',occupants,allocation?.headcountPending?'Unknown':`${countOf(allocation)} / ${room.capacity}`,String(allocation?.arrived||0)];
   if(options.includeContact)values.push(allocation?.contact||'-');
   if(options.includeNotes)values.push(allocation?.notes||'-');
   return values;
@@ -75,7 +76,7 @@ export async function generateReport(data:Dataset,options:ReportOptions,context:
   const areaName=(data.properties.find(p=>p.id===area.propertyId)?.name||'Property')+' - '+area.name;
   doc.setFont('helvetica','bold');doc.setFontSize(11);doc.setTextColor(...wine);doc.text(doc.splitTextToSize(areaName,width),margin,y);
   y+=doc.splitTextToSize(areaName,width).length*5;
-  doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(...muted);doc.text(`${rooms.length} rooms | ${areaSummary.assigned} assigned | ${areaSummary.arrived} arrived`,margin,y);y+=4;
+  doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(...muted);doc.text(`${rooms.length} rooms shown | ${areaSummary.total} provided | ${areaSummary.assigned} assigned | ${areaSummary.arrived} arrived`,margin,y);y+=4;
   let firstTablePage=true;
   autoTable(doc,{
    startY:y,margin:{left:margin,right:margin,top:37,bottom:15},tableWidth:width,head:[headings],body:rows(rooms),columnStyles,theme:'grid',showHead:'everyPage',rowPageBreak:'avoid',
